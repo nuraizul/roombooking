@@ -216,6 +216,8 @@
     } catch (e) {
       content.innerHTML = `<div class="panel empty"><i class="fa-solid fa-triangle-exclamation"></i> Could not load this page: ${esc(e.message)}</div>`;
     }
+    // Status changes with time (meeting start/end), not only on events, so refresh periodically too.
+    setInterval(() => { if (!document.hidden) reload(); }, 30000);
     if (typeof io === 'function') {
       const socket = io();
       socket.on('connect', () => setConn(true));
