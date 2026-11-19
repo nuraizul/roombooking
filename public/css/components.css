@@ -234,3 +234,9 @@ html[data-theme="dark"] .room-card:hover,
 html[data-theme="dark"] .device-card:hover{border-color:#3a4d70}
 /* theme switch button */
 .theme-btn{width:34px;height:34px;padding:0;display:grid;place-items:center}
+
+/* Connection indicator on the tablet display (small, top edge) */
+#netbar{position:fixed;top:6px;right:10px;z-index:60;font:600 11px/1 'DM Sans',Arial,sans-serif;padding:6px 10px;border-radius:20px;display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.45);color:#e6ecf5;pointer-events:none}
+#netbar i{width:7px;height:7px;border-radius:50%;background:#3ddc84;display:inline-block}
+#netbar.off{background:rgba(120,60,0,.6);color:#ffd9a8}
+#netbar.off i{background:#ffa53b}

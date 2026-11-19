@@ -72,6 +72,13 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - `public/js/display.js` — tablet display.
 - `public/css/style.css` (base theme) and `public/css/components.css` (modals, pills, calendar, display).
 
+## Tablet display: online/offline and offline mode
+- A small pill at the top right shows **Online** (green) or **Offline · saved HH:MM** (orange).
+- The tablet keeps its last schedule in the browser, and a service worker (`sw.js`) keeps the display page and its scripts available. If the network drops, the room status keeps working from that saved schedule, and the status changes on time by itself.
+- Open the display URL once while online so the page and schedule are saved on the tablet. After that it can start without a network.
+- The display uses the server's clock, so the status stays right even if the tablet's timezone is wrong.
+- Offline mode cannot show new bookings made after the tablet went offline. It shows the room as Available or In use based on the last schedule it received.
+
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.
 - **Roles page** (Administrators only): create roles and tick what each role can access. The built-in Administrator role always has everything.

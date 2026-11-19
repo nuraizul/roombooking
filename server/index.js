@@ -333,12 +333,14 @@ app.get('/api/display/:deviceCode', (req, res) => {
   const s = getSettings();
   const settings = { system_name: s.system_name, time_format: s.time_format, display_refresh_seconds: s.display_refresh_seconds };
   const room = device.room_id ? db.prepare('SELECT * FROM rooms WHERE id=? AND active=1').get(device.room_id) : null;
-  if (!room) return res.json({ device, room: null, current: null, upcoming: [], settings });
+  if (!room) return res.json({ device, room: null, current: null, upcoming: [], schedule: [], server_now: now, settings });
   const list = db.prepare(`${BOOKING_SQL} WHERE b.room_id=? AND b.status!='Cancelled' AND b.end_at>? ORDER BY b.start_at LIMIT 12`)
     .all(room.id, now).map(b => bookingShape(b, now));
   const current = list.find(b => b.time_state === 'Ongoing') || null;
   const upcoming = list.filter(b => b.time_state === 'Upcoming').slice(0, 1); // display shows only the next meeting
-  res.json({ device, room: roomShape(room), current, upcoming, settings });
+  // schedule: the next few live bookings, so the tablet can keep working offline from its saved copy
+  const schedule = list.map(b => ({ id: b.id, title: b.title, organizer: b.organizer, start_at: b.start_at, end_at: b.end_at, status: b.status }));
+  res.json({ device, room: roomShape(room), current, upcoming, schedule, server_now: now, settings });
 });
 
 // ---------- users (admin only, enforced by auth rules)
