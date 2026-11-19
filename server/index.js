@@ -346,7 +346,8 @@ const USER_COLS = 'id,name,email,role,active';
 const userOut = u => u && ({ ...u, active: !!u.active });
 function userInput(b, requirePassword) {
   const name = String(b.name || '').trim(), email = String(b.email || '').trim().toLowerCase();
-  const role = ROLES.includes(b.role) ? b.role : 'Staff';
+  const role = String(b.role || 'Staff');
+  if (!db.prepare('SELECT 1 FROM roles WHERE name=?').get(role)) return { error: 'That role does not exist' };
   const password = String(b.password || '');
   if (!name || !email) return { error: 'Name and email are required' };
   if (name.length > 80) return { error: 'Name is too long' };
@@ -401,6 +402,59 @@ app.patch('/api/users/:id/active', (req, res) => {
   db.prepare('UPDATE users SET active=? WHERE id=?').run(active ? 1 : 0, id);
   io.emit('users:changed', {});
   res.json(userOut(db.prepare(`SELECT ${USER_COLS} FROM users WHERE id=?`).get(id)));
+});
+
+// ---------- roles (admins create roles and tick the permissions each one gets)
+const roleOut = r => ({
+  name: r.name, system: !!r.system, perms: JSON.parse(r.perms),
+  user_count: db.prepare('SELECT COUNT(*) AS n FROM users WHERE role=?').get(r.name).n
+});
+function roleInput(b) {
+  const name = String(b.name || '').trim();
+  const perms = Array.isArray(b.perms) ? [...new Set(b.perms.map(String))] : [];
+  if (name.length < 2 || name.length > 40) return { error: 'Role name must be 2 to 40 characters' };
+  const unknown = perms.filter(k => !auth.ALL_PERMS.includes(k));
+  if (unknown.length) return { error: `Unknown permission: ${unknown[0]}` };
+  return { value: { name, perms: perms.filter(k => auth.ALL_PERMS.includes(k)) } };
+}
+app.get('/api/roles', (req, res) => res.json({
+  roles: db.prepare('SELECT * FROM roles ORDER BY system DESC, name').all().map(roleOut),
+  catalog: auth.PERM_CATALOG
+}));
+app.post('/api/roles', (req, res) => {
+  const v = roleInput(req.body || {});
+  if (v.error) return bad(res, v.error);
+  if (db.prepare('SELECT 1 FROM roles WHERE name=? COLLATE NOCASE').get(v.value.name)) return bad(res, 'A role with that name already exists', 409);
+  db.prepare('INSERT INTO roles(name,perms,system) VALUES(?,?,0)').run(v.value.name, JSON.stringify(v.value.perms));
+  io.emit('roles:changed', {});
+  res.status(201).json(roleOut(db.prepare('SELECT * FROM roles WHERE name=?').get(v.value.name)));
+});
+app.put('/api/roles/:name', (req, res) => {
+  const oldName = req.params.name;
+  const role = db.prepare('SELECT * FROM roles WHERE name=?').get(oldName);
+  if (!role) return bad(res, 'Role not found', 404);
+  if (role.system) return bad(res, 'The Administrator role is built in and cannot be changed', 409);
+  const v = roleInput(req.body || {});
+  if (v.error) return bad(res, v.error);
+  if (v.value.name.toLowerCase() !== oldName.toLowerCase() && db.prepare('SELECT 1 FROM roles WHERE name=? COLLATE NOCASE').get(v.value.name))
+    return bad(res, 'A role with that name already exists', 409);
+  db.transaction(() => {
+    db.prepare('UPDATE roles SET name=?, perms=? WHERE name=?').run(v.value.name, JSON.stringify(v.value.perms), oldName);
+    if (v.value.name !== oldName) db.prepare('UPDATE users SET role=? WHERE role=?').run(v.value.name, oldName);
+  })();
+  io.emit('roles:changed', {});
+  io.emit('users:changed', {});
+  res.json(roleOut(db.prepare('SELECT * FROM roles WHERE name=?').get(v.value.name)));
+});
+app.delete('/api/roles/:name', (req, res) => {
+  const role = db.prepare('SELECT * FROM roles WHERE name=?').get(req.params.name);
+  if (!role) return bad(res, 'Role not found', 404);
+  if (role.system) return bad(res, 'The Administrator role is built in and cannot be deleted', 409);
+  const n = db.prepare('SELECT COUNT(*) AS n FROM users WHERE role=?').get(role.name).n;
+  if (n) return bad(res, `${n} user(s) still have this role. Change their role first.`, 409);
+  db.prepare('DELETE FROM roles WHERE name=?').run(role.name);
+  io.emit('roles:changed', {});
+  res.json({ ok: true });
 });
 
 // ---------- authentication

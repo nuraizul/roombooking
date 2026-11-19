@@ -12,17 +12,41 @@ const columnsOf = t => db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.na
 if (!columnsOf('users').includes('password_hash')) db.exec('ALTER TABLE users ADD COLUMN password_hash TEXT');
 if (!columnsOf('bookings').includes('created_by')) db.exec('ALTER TABLE bookings ADD COLUMN created_by INTEGER');
 
-// ---------- roles & permissions
-const ALL_PERMS = [
-  'dashboard.view', 'rooms.view', 'rooms.manage',
-  'bookings.view', 'bookings.create', 'bookings.edit_own', 'bookings.manage', 'bookings.approve',
-  'calendar.view', 'users.manage', 'devices.manage', 'settings.manage'
+// ---------- roles & permissions (roles are stored in the database and managed by admins)
+db.exec(`CREATE TABLE IF NOT EXISTS roles (
+  name TEXT PRIMARY KEY, perms TEXT NOT NULL DEFAULT '[]', system INTEGER DEFAULT 0
+);`);
+
+// Every permission the app understands. Admins choose from this list when building roles.
+const PERM_CATALOG = [
+  { key: 'dashboard.view', label: 'View dashboard', group: 'Dashboard' },
+  { key: 'rooms.view', label: 'View rooms', group: 'Rooms' },
+  { key: 'rooms.manage', label: 'Add, edit and deactivate rooms', group: 'Rooms' },
+  { key: 'bookings.view', label: 'View all bookings', group: 'Bookings' },
+  { key: 'bookings.create', label: 'Create bookings', group: 'Bookings' },
+  { key: 'bookings.edit_own', label: 'Edit and cancel own bookings', group: 'Bookings' },
+  { key: 'bookings.manage', label: 'Edit and cancel any booking', group: 'Bookings' },
+  { key: 'bookings.approve', label: 'Approve pending bookings', group: 'Bookings' },
+  { key: 'calendar.view', label: 'View calendar', group: 'Calendar' },
+  { key: 'users.manage', label: 'Manage users and passwords', group: 'Administration' },
+  { key: 'roles.manage', label: 'Manage roles and permissions', group: 'Administration' },
+  { key: 'devices.manage', label: 'Manage room displays', group: 'Administration' },
+  { key: 'settings.manage', label: 'Change system settings', group: 'Administration' }
 ];
-const ROLE_PERMS = {
-  Administrator: ALL_PERMS,
-  Staff: ['dashboard.view', 'rooms.view', 'bookings.view', 'bookings.create', 'bookings.edit_own', 'calendar.view']
-};
-const permsFor = role => ROLE_PERMS[role] || [];
+const ALL_PERMS = PERM_CATALOG.map(p => p.key);
+const ADMIN_ROLE = 'Administrator';
+
+// Seed the built-in roles on first run. Administrator always has every permission and cannot be edited.
+db.prepare("INSERT OR IGNORE INTO roles(name,perms,system) VALUES(?,?,1)").run(ADMIN_ROLE, JSON.stringify(ALL_PERMS));
+db.prepare("INSERT OR IGNORE INTO roles(name,perms,system) VALUES('Staff',?,0)").run(JSON.stringify([
+  'dashboard.view', 'rooms.view', 'bookings.view', 'bookings.create', 'bookings.edit_own', 'calendar.view'
+]));
+
+function permsFor(roleName) {
+  if (roleName === ADMIN_ROLE) return ALL_PERMS;
+  const row = db.prepare('SELECT perms FROM roles WHERE name=?').get(roleName);
+  return row ? JSON.parse(row.perms) : [];
+}
 const can = (user, perm) => !!user && permsFor(user.role).includes(perm);
 
 // ---------- passwords (scrypt, built into Node)
@@ -89,7 +113,11 @@ const RULES = [
   ['GET', /^\/api\/users$/, 'users.manage'],
   ['POST', /^\/api\/users$/, 'users.manage'],
   ['PUT', /^\/api\/users\/\d+$/, 'users.manage'],
-  ['PATCH', /^\/api\/users\/\d+\/active$/, 'users.manage']
+  ['PATCH', /^\/api\/users\/\d+\/active$/, 'users.manage'],
+  ['GET', /^\/api\/roles$/, null],
+  ['POST', /^\/api\/roles$/, 'roles.manage'],
+  ['PUT', /^\/api\/roles\/[^/]+$/, 'roles.manage'],
+  ['DELETE', /^\/api\/roles\/[^/]+$/, 'roles.manage']
 ];
 
 // Middleware for /api: checks login, then the role's permission. Staff may only change their own bookings.
@@ -103,8 +131,9 @@ function requireAccess(req, res, next) {
   if (!rule) return next(); // unknown route: the 404 handler answers
   const [, re, perm] = rule;
   if (perm === null) return next();
+  if (perm === 'bookings.edit_own' && can(user, 'bookings.manage')) return next();
   if (!can(user, perm)) return res.status(403).json({ error: 'Your role is not allowed to do this' });
-  if (perm === 'bookings.edit_own' && !can(user, 'bookings.manage')) {
+  if (perm === 'bookings.edit_own') {
     const b = db.prepare('SELECT created_by FROM bookings WHERE id=?').get(Number(full.match(re)[1]));
     if (!b) return next(); // route returns 404
     if (b.created_by !== user.id) return res.status(403).json({ error: 'You can only change bookings you created' });
@@ -113,6 +142,6 @@ function requireAccess(req, res, next) {
 }
 
 module.exports = {
-  ALL_PERMS, ROLE_PERMS, permsFor, can, hashPassword, verifyPassword,
+  ALL_PERMS, PERM_CATALOG, ADMIN_ROLE, permsFor, can, hashPassword, verifyPassword,
   currentUser, login, logout, publicUser, withPerms, hasAnyPassword, countActiveAdmins, requireAccess
 };

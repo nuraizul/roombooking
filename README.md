@@ -74,8 +74,9 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.
-- Administrator: full access (rooms, all bookings, approve, users, room displays, settings).
-- Staff: view dashboard, rooms, bookings and calendar; create bookings; edit or cancel **only bookings they created**.
+- **Roles page** (Administrators only): create roles and tick what each role can access. The built-in Administrator role always has everything.
+- The built-in **Staff** role can view dashboard, rooms, bookings and calendar, create bookings, and edit or cancel only bookings they created. You can edit it like any other role.
+- Assign a role to a user in **Users**. Users only see the pages and buttons their role allows.
 - Every API call checks the session and the role on the server, so hidden buttons cannot be bypassed.
 - Users change their own password from the key icon in the top bar. Administrators set passwords in **Users**.
 - Tablet displays (`display.html`) stay public so they can run without a login. Anyone with the display URL can see room status and meeting titles.

@@ -51,6 +51,11 @@
     deleteDevice: id => request(`/devices/${id}`, { method: 'DELETE' }),
     getDisplay: code => request(`/display/${encodeURIComponent(code)}`),
 
+    getRoles: () => request('/roles'),
+    addRole: r => request('/roles', { method: 'POST', body: r }),
+    updateRole: (name, r) => request(`/roles/${encodeURIComponent(name)}`, { method: 'PUT', body: r }),
+    deleteRole: name => request(`/roles/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
     getUsers: () => request('/users'),
     addUser: u => request('/users', { method: 'POST', body: u }),
     updateUser: (id, u) => request(`/users/${id}`, { method: 'PUT', body: u }),

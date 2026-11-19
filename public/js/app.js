@@ -9,6 +9,7 @@
     { id: 'bookings', label: 'Bookings', icon: 'fa-calendar-check', href: 'bookings.html', perm: 'bookings.view' },
     { id: 'calendar', label: 'Calendar', icon: 'fa-calendar-days', href: 'calendar.html', perm: 'calendar.view' },
     { id: 'users', label: 'Users', icon: 'fa-users', href: 'users.html', perm: 'users.manage' },
+    { id: 'roles', label: 'Roles', icon: 'fa-user-tag', href: 'roles.html', perm: 'roles.manage' },
     { id: 'display', label: 'Room Displays', icon: 'fa-display', href: 'room-display.html', perm: 'devices.manage' },
     { id: 'settings', label: 'Settings', icon: 'fa-gear', href: 'settings.html', perm: 'settings.manage' }
   ];
@@ -18,6 +19,7 @@
     bookings: ['Bookings', 'Create, edit, approve and cancel reservations.'],
     calendar: ['Calendar', 'Monthly view of all room bookings.'],
     users: ['Users', 'Manage user accounts and roles.'],
+    roles: ['Roles', 'Create roles and choose what each role can access.'],
     display: ['Room Displays', 'Register tablets and assign them to rooms.'],
     settings: ['Settings', 'Booking rules and system configuration.']
   };
@@ -176,7 +178,7 @@
     root.querySelectorAll('[data-need]').forEach(el => {
       const need = el.dataset.need;
       let ok = RF.can(need);
-      if (ok && need === 'bookings.edit_own' && !RF.can('bookings.manage')) ok = String(RF.me.id) === el.dataset.owner;
+      if (need === 'bookings.edit_own') ok = RF.can('bookings.manage') || (RF.can('bookings.edit_own') && String(RF.me.id) === el.dataset.owner);
       if (!ok) el.remove();
     });
   }
