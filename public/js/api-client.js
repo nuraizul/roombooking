@@ -10,6 +10,7 @@
     });
     let data = {};
     try { data = await res.json(); } catch (_) { /* empty body */ }
+    if (res.status === 401 && !path.startsWith('/auth/')) { location.href = 'login.html'; }
     if (!res.ok) {
       const err = new Error(data.error || `Request failed (${res.status})`);
       err.status = res.status;

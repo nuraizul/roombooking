@@ -16,7 +16,7 @@
               <button class="btn" id="prev"><i class="fa-solid fa-chevron-left"></i></button>
               <button class="btn" id="today">Today</button>
               <button class="btn" id="next"><i class="fa-solid fa-chevron-right"></i></button>
-              <button class="btn primary" id="new"><i class="fa-solid fa-plus"></i> New booking</button>
+              <button class="btn primary" id="new" data-need="bookings.create"><i class="fa-solid fa-plus"></i> New booking</button>
             </div>
           </div>
           <div class="calendar-grid" id="grid"></div>
@@ -61,12 +61,12 @@
       const rows = list.length ? list.map(b => `<div class="list-row">
           <div class="grow"><strong>${RF.esc(b.title)}</strong><p>${RF.timeRange(b)} · ${RF.esc(b.room_no)} ${RF.esc(b.room_name)} · ${RF.esc(b.organizer)}</p></div>
           ${RF.statePill(b)}
-          <button class="btn small" data-edit="${b.id}">Edit</button></div>`).join('')
+          <button class="btn small" data-need="bookings.edit_own" data-owner="${b.created_by ?? ''}" data-edit="${b.id}">Edit</button></div>`).join('')
         : '<div class="empty">No bookings on this day.</div>';
       const d = RF.parse(day + ' 00:00:00');
       const m = RF.modal({
         title: d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
-        body: `${rows}<div class="modal-actions" style="margin-top:14px"><button class="btn primary" id="add-day"><i class="fa-solid fa-plus"></i> Book this day</button></div>`,
+        body: `${rows}<div class="modal-actions" style="margin-top:14px"><button class="btn primary" id="add-day" data-need="bookings.create"><i class="fa-solid fa-plus"></i> Book this day</button></div>`,
         onMount: (root, close) => {
           root.querySelector('#add-day').onclick = () => { close(); RF.openBooking({ date: day, onSaved: () => this.load() }); };
           root.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { close(); RF.openBooking({ booking: list.find(x => x.id == b.dataset.edit), onSaved: () => this.load() }); });

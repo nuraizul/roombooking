@@ -56,6 +56,7 @@
         body: `<form class="form-grid" id="uf" novalidate>
           <div class="field full"><label>Full name</label><input name="name" maxlength="80" required value="${RF.esc(user?.name || '')}"></div>
           <div class="field full"><label>Email</label><input name="email" type="email" maxlength="120" required value="${RF.esc(user?.email || '')}"></div>
+          <div class="field full"><label>Password ${user ? '(leave blank to keep current)' : '(min 8 characters)'}</label><input type="password" name="password" minlength="8" autocomplete="new-password" ${user ? '' : 'required'}></div>
           <div class="field full"><label>Role</label><select name="role"><option ${user?.role !== 'Administrator' ? 'selected' : ''}>Staff</option><option ${user?.role === 'Administrator' ? 'selected' : ''}>Administrator</option></select></div>
           <div class="field full"><div class="form-error" id="uerr"></div></div>
           <div class="field full modal-actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">${user ? 'Save user' : 'Add user'}</button></div>

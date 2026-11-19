@@ -9,7 +9,7 @@
         <div class="stats" id="stats"></div>
         <section class="panel">
           <div class="panel-head"><div><h2>Room inventory</h2><p>Room list, capacity and facilities</p></div>
-            <button class="btn primary" id="add"><i class="fa-solid fa-plus"></i> Add room</button></div>
+            <button class="btn primary" id="add" data-need="rooms.manage"><i class="fa-solid fa-plus"></i> Add room</button></div>
           <div class="toolbar">
             <div class="search"><i class="fa-solid fa-magnifying-glass"></i><input id="q" placeholder="Search room name or number"></div>
             <select id="floor"><option value="">All floors</option></select>
@@ -42,8 +42,8 @@
       const list = this.rooms.filter(r => (!floor || r.floor === floor) &&
         (!q || `${r.name} ${r.room_no}`.toLowerCase().includes(q)));
       this.el.querySelector('#grid').innerHTML = list.length
-        ? list.map(r => RF.roomCard(r, `<button class="btn small" data-edit="${r.id}"><i class="fa-solid fa-pen"></i> Edit</button>
-            <button class="btn small danger" data-off="${r.id}"><i class="fa-solid fa-ban"></i> Deactivate</button>`)).join('')
+        ? list.map(r => RF.roomCard(r, `<button class="btn small" data-need="rooms.manage" data-edit="${r.id}"><i class="fa-solid fa-pen"></i> Edit</button>
+            <button class="btn small danger" data-need="rooms.manage" data-off="${r.id}"><i class="fa-solid fa-ban"></i> Deactivate</button>`)).join('')
         : '<div class="empty">No rooms match your filter.</div>';
       this.el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => this.form(this.rooms.find(r => r.id == b.dataset.edit)));
       this.el.querySelectorAll('[data-off]').forEach(b => b.onclick = () => this.deactivate(this.rooms.find(r => r.id == b.dataset.off)));

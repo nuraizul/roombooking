@@ -4,13 +4,13 @@
   const RF = (window.RF = { pages: {}, settings: { time_format: '12', system_name: 'RoomFlow Booking System', organization: 'Your Organization' } });
   const FACILITIES = ['Display', 'Wi-Fi', 'Video', 'HDMI', 'Whiteboard', 'Phone'];
   const NAV = [
-    { id: 'dashboard', label: 'Dashboard', icon: 'fa-chart-pie', href: 'index.html' },
-    { id: 'rooms', label: 'Rooms', icon: 'fa-door-open', href: 'rooms.html' },
-    { id: 'bookings', label: 'Bookings', icon: 'fa-calendar-check', href: 'bookings.html' },
-    { id: 'calendar', label: 'Calendar', icon: 'fa-calendar-days', href: 'calendar.html' },
-    { id: 'users', label: 'Users', icon: 'fa-users', href: 'users.html' },
-    { id: 'display', label: 'Room Displays', icon: 'fa-display', href: 'room-display.html' },
-    { id: 'settings', label: 'Settings', icon: 'fa-gear', href: 'settings.html' }
+    { id: 'dashboard', label: 'Dashboard', icon: 'fa-chart-pie', href: 'index.html', perm: 'dashboard.view' },
+    { id: 'rooms', label: 'Rooms', icon: 'fa-door-open', href: 'rooms.html', perm: 'rooms.view' },
+    { id: 'bookings', label: 'Bookings', icon: 'fa-calendar-check', href: 'bookings.html', perm: 'bookings.view' },
+    { id: 'calendar', label: 'Calendar', icon: 'fa-calendar-days', href: 'calendar.html', perm: 'calendar.view' },
+    { id: 'users', label: 'Users', icon: 'fa-users', href: 'users.html', perm: 'users.manage' },
+    { id: 'display', label: 'Room Displays', icon: 'fa-display', href: 'room-display.html', perm: 'devices.manage' },
+    { id: 'settings', label: 'Settings', icon: 'fa-gear', href: 'settings.html', perm: 'settings.manage' }
   ];
   const META = {
     dashboard: ['Dashboard', 'Live room status and today’s schedule.'],
@@ -170,21 +170,37 @@
     });
   };
 
+  // Permissions come from the server. Elements marked data-need are removed when the user lacks the permission.
+  // data-owner (a booking's creator id) lets staff act only on their own bookings.
+  function applyPerms(root) {
+    root.querySelectorAll('[data-need]').forEach(el => {
+      const need = el.dataset.need;
+      let ok = RF.can(need);
+      if (ok && need === 'bookings.edit_own' && !RF.can('bookings.manage')) ok = String(RF.me.id) === el.dataset.owner;
+      if (!ok) el.remove();
+    });
+  }
+
   function shell(page) {
     const [title, desc] = META[page] || META.dashboard;
-    const nav = NAV.map(n => `<a href="${n.href}" class="${n.id === page ? 'active' : ''}"><i class="fa-solid ${n.icon}"></i><span>${n.label}</span></a>`).join('');
+    const nav = NAV.filter(n => RF.can(n.perm)).map(n => `<a href="${n.href}" class="${n.id === page ? 'active' : ''}"><i class="fa-solid ${n.icon}"></i><span>${n.label}</span></a>`).join('');
     document.getElementById('app').innerHTML = `<div class="shell">
       <aside class="sidebar">
         <div class="brand"><div class="brand-mark"><i class="fa-solid fa-calendar-check"></i></div><div><h2>RoomFlow</h2><small>${esc(RF.settings.system_name)}</small></div></div>
         <div class="nav-caption">WORKSPACE</div>
         <nav class="nav">${nav}</nav>
-        <div class="sidebar-foot"><div class="avatar"><i class="fa-solid fa-user-shield"></i></div><div><strong>${esc(RF.settings.organization)}</strong><small>Admin console</small></div></div>
+        <div class="sidebar-foot"><div class="avatar"><i class="fa-solid fa-user-shield"></i></div><div><strong>${esc(RF.settings.organization)}</strong><small>${esc(RF.me.role)} console</small></div></div>
       </aside>
       <main class="main">
         <header class="topbar">
           <div class="mobile-brand"><i class="fa-solid fa-calendar-check" style="color:var(--blue)"></i> RoomFlow</div>
           <div class="crumb">Workspace &nbsp;›&nbsp; <b>${title}</b></div>
-          <div class="top-right"><span class="online-pill" id="conn"><i class="dot"></i> <span>Connecting…</span></span></div>
+          <div class="top-right">
+            <span class="online-pill" id="conn"><i class="dot"></i> <span>Connecting…</span></span>
+            <button class="btn small" id="pwd" title="Change password"><i class="fa-solid fa-key"></i></button>
+            <span class="who">${esc(RF.me.name)} <small>${esc(RF.me.role)}</small></span>
+            <button class="btn small" id="logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+          </div>
         </header>
         <div class="page">
           <div class="page-head"><div><h1>${title}</h1><p>${desc}</p></div></div>
@@ -203,13 +219,47 @@
 
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
+  function changePassword() {
+    RF.modal({
+      title: 'Change password',
+      body: `<form class="form-grid" id="pf" novalidate>
+        <div class="field full"><label>Current password</label><input type="password" name="current" required></div>
+        <div class="field full"><label>New password (min 8 characters)</label><input type="password" name="new" required minlength="8"></div>
+        <div class="field full"><div class="form-error" id="perr"></div></div>
+        <div class="field full modal-actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Update</button></div>
+      </form>`,
+      onMount: (root, close) => {
+        const f = root.querySelector('#pf');
+        f.onsubmit = async e => {
+          e.preventDefault();
+          try { await A.request('/auth/password', { method: 'POST', body: RF.readForm(f) }); RF.toast('Password updated'); close(); }
+          catch (ex) { root.querySelector('#perr').textContent = ex.message; }
+        };
+      }
+    });
+  }
+
   async function boot() {
     const page = document.body.dataset.page;
+    try { RF.me = await A.request('/auth/me'); }
+    catch (_) { location.href = 'login.html'; return; }
+    RF.can = p => (RF.me.permissions || []).includes(p);
     try { RF.settings = await A.getSettings(); } catch (_) { /* keep defaults */ }
     shell(page);
+    document.getElementById('logout').onclick = async () => {
+      try { await A.request('/auth/logout', { method: 'POST' }); } catch (_) {}
+      location.href = 'login.html';
+    };
+    document.getElementById('pwd').onclick = changePassword;
+    new MutationObserver(() => applyPerms(document.body)).observe(document.body, { childList: true, subtree: true });
     const mod = RF.pages[page];
     if (!mod) return;
+    const navItem = NAV.find(n => n.id === page);
     const content = document.getElementById('content');
+    if (navItem && !RF.can(navItem.perm)) {
+      content.innerHTML = `<div class="panel empty"><i class="fa-solid fa-lock"></i> Your role (${RF.esc(RF.me.role)}) does not have access to this page.</div>`;
+      return;
+    }
     const reload = debounce(() => mod.load && mod.load().catch(e => RF.toast(e.message, 'error')), 200);
     try {
       await mod.init(content);

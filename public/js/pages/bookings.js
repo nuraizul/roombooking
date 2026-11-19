@@ -11,7 +11,7 @@
         <section class="panel">
           <div class="panel-head"><div><h2>All bookings</h2><p>Reservation records</p></div>
             <div class="actions"><button class="btn" id="csv"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
-            <button class="btn primary" id="new"><i class="fa-solid fa-plus"></i> New booking</button></div></div>
+            <button class="btn primary" id="new" data-need="bookings.create"><i class="fa-solid fa-plus"></i> New booking</button></div></div>
           <div class="toolbar">
             <div class="search"><i class="fa-solid fa-magnifying-glass"></i><input id="q" placeholder="Search title, room or organizer"></div>
             <input type="date" id="from" value="${addDays(0)}" title="From">
@@ -63,9 +63,9 @@
         <td>${RF.timeRange(b)}</td>
         <td>${RF.statePill(b)}</td>
         <td><div class="table-actions">
-          ${b.status === 'Pending' ? `<button class="btn small" data-approve="${b.id}">Approve</button>` : ''}
-          ${b.time_state !== 'Cancelled' && b.time_state !== 'Completed' ? `<button class="btn small" data-edit="${b.id}">Edit</button>
-          <button class="btn small danger" data-cancel="${b.id}">Cancel</button>` : ''}
+          ${b.status === 'Pending' ? `<button class="btn small" data-need="bookings.approve" data-approve="${b.id}">Approve</button>` : ''}
+          ${b.time_state !== 'Cancelled' && b.time_state !== 'Completed' ? `<button class="btn small" data-need="bookings.edit_own" data-owner="${b.created_by ?? ''}" data-edit="${b.id}">Edit</button>
+          <button class="btn small danger" data-need="bookings.edit_own" data-owner="${b.created_by ?? ''}" data-cancel="${b.id}">Cancel</button>` : ''}
         </div></td></tr>`).join('');
       this.el.querySelector('#table').innerHTML = list.length
         ? `<table><thead><tr><th>Meeting</th><th>Room</th><th>Date</th><th>Time</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>`

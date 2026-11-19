@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const db = require('./db');
+const auth = require('./auth');
 
 const PORT = process.env.PORT || 3000;
 const ONLINE_WINDOW_MIN = 2;
@@ -22,6 +23,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 app.use(express.json({ limit: '100kb' }));
+app.use('/api', auth.requireAccess);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const seedSetting = db.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)');
@@ -102,9 +104,9 @@ function validateBooking(body, id = null) {
   return { value: { room_id, title, organizer, start_at: start, end_at: end } };
 }
 function broadcastBooking(type, booking, oldRoomId) {
-  io.to(`room:${booking.room_id}`).emit('booking:changed', { type, booking });
-  if (oldRoomId && oldRoomId !== booking.room_id) io.to(`room:${oldRoomId}`).emit('booking:changed', { type, booking });
-  io.emit('bookings:changed', { type, booking });
+  io.to(`room:${booking.room_id}`).emit('booking:changed', { type });
+  if (oldRoomId && oldRoomId !== booking.room_id) io.to(`room:${oldRoomId}`).emit('booking:changed', { type });
+  io.emit('bookings:changed', { type });
 }
 
 // ---------- rooms with live status
@@ -238,8 +240,8 @@ app.post('/api/bookings', (req, res) => {
   if (v.error) return bad(res, v.error, v.conflict ? 409 : 400);
   const { room_id, title, organizer, start_at, end_at } = v.value;
   const status = getSettings().require_approval ? 'Pending' : 'Confirmed';
-  const info = db.prepare('INSERT INTO bookings(room_id,title,organizer,start_at,end_at,status) VALUES(?,?,?,?,?,?)')
-    .run(room_id, title, organizer, start_at, end_at, status);
+  const info = db.prepare('INSERT INTO bookings(room_id,title,organizer,start_at,end_at,status,created_by) VALUES(?,?,?,?,?,?,?)')
+    .run(room_id, title, organizer, start_at, end_at, status, req.user.id);
   const booking = getBooking(info.lastInsertRowid);
   broadcastBooking('created', booking);
   res.status(201).json(booking);
@@ -297,7 +299,7 @@ app.post('/api/devices/register', (req, res) => {
   try {
     const info = db.prepare('INSERT INTO devices(device_code,device_name,platform,room_id) VALUES(?,?,?,?)').run(device_code, device_name, platform, room_id);
     const device = db.prepare('SELECT * FROM devices WHERE id=?').get(info.lastInsertRowid);
-    io.emit('devices:changed', device);
+    io.emit('devices:changed', {});
     res.status(201).json(device);
   } catch (e) {
     if (isUnique(e)) return bad(res, 'Device code is already registered', 409);
@@ -313,7 +315,7 @@ app.patch('/api/devices/:id/assign', (req, res) => {
   db.prepare('UPDATE devices SET room_id=? WHERE id=?').run(room_id, id);
   const updated = db.prepare('SELECT * FROM devices WHERE id=?').get(id);
   io.to(`device:${updated.device_code}`).emit('display:refresh');
-  io.emit('devices:changed', updated);
+  io.emit('devices:changed', {});
   res.json(updated);
 });
 app.delete('/api/devices/:id', (req, res) => {
@@ -339,24 +341,29 @@ app.get('/api/display/:deviceCode', (req, res) => {
   res.json({ device, room: roomShape(room), current, upcoming, settings });
 });
 
-// ---------- users
-function userInput(b) {
+// ---------- users (admin only, enforced by auth rules)
+const USER_COLS = 'id,name,email,role,active';
+const userOut = u => u && ({ ...u, active: !!u.active });
+function userInput(b, requirePassword) {
   const name = String(b.name || '').trim(), email = String(b.email || '').trim().toLowerCase();
   const role = ROLES.includes(b.role) ? b.role : 'Staff';
+  const password = String(b.password || '');
   if (!name || !email) return { error: 'Name and email are required' };
   if (name.length > 80) return { error: 'Name is too long' };
   if (!isEmail(email)) return { error: 'Email format is invalid' };
-  return { value: { name, email, role } };
+  if ((requirePassword || password) && password.length < 8) return { error: 'Password must be at least 8 characters' };
+  return { value: { name, email, role, password: password || null } };
 }
-app.get('/api/users', (req, res) => res.json(db.prepare('SELECT * FROM users ORDER BY name').all().map(u => ({ ...u, active: !!u.active }))));
+app.get('/api/users', (req, res) => res.json(db.prepare(`SELECT ${USER_COLS} FROM users ORDER BY name`).all().map(userOut)));
 app.post('/api/users', (req, res) => {
-  const v = userInput(req.body || {});
+  const v = userInput(req.body || {}, true);
   if (v.error) return bad(res, v.error);
   try {
-    const info = db.prepare('INSERT INTO users(name,email,role) VALUES(?,?,?)').run(v.value.name, v.value.email, v.value.role);
-    const user = db.prepare('SELECT * FROM users WHERE id=?').get(info.lastInsertRowid);
-    io.emit('users:changed', user);
-    res.status(201).json({ ...user, active: !!user.active });
+    const info = db.prepare('INSERT INTO users(name,email,role,password_hash) VALUES(?,?,?,?)')
+      .run(v.value.name, v.value.email, v.value.role, auth.hashPassword(v.value.password));
+    const user = userOut(db.prepare(`SELECT ${USER_COLS} FROM users WHERE id=?`).get(info.lastInsertRowid));
+    io.emit('users:changed', {});
+    res.status(201).json(user);
   } catch (e) {
     if (isUnique(e)) return bad(res, 'Email already exists', 409);
     throw e;
@@ -364,14 +371,19 @@ app.post('/api/users', (req, res) => {
 });
 app.put('/api/users/:id', (req, res) => {
   const id = Number(req.params.id);
-  if (!db.prepare('SELECT id FROM users WHERE id=?').get(id)) return bad(res, 'User not found', 404);
-  const v = userInput(req.body || {});
+  const target = db.prepare('SELECT * FROM users WHERE id=?').get(id);
+  if (!target) return bad(res, 'User not found', 404);
+  const v = userInput(req.body || {}, false);
   if (v.error) return bad(res, v.error);
+  const losesAdmin = target.role === 'Administrator' && target.active && v.value.role !== 'Administrator';
+  if (losesAdmin && auth.countActiveAdmins() <= 1) return bad(res, 'At least one active Administrator is required', 409);
   try {
-    db.prepare('UPDATE users SET name=?,email=?,role=? WHERE id=?').run(v.value.name, v.value.email, v.value.role, id);
-    const user = db.prepare('SELECT * FROM users WHERE id=?').get(id);
-    io.emit('users:changed', user);
-    res.json({ ...user, active: !!user.active });
+    db.transaction(() => {
+      db.prepare('UPDATE users SET name=?,email=?,role=? WHERE id=?').run(v.value.name, v.value.email, v.value.role, id);
+      if (v.value.password) db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(auth.hashPassword(v.value.password), id);
+    })();
+    io.emit('users:changed', {});
+    res.json(userOut(db.prepare(`SELECT ${USER_COLS} FROM users WHERE id=?`).get(id)));
   } catch (e) {
     if (isUnique(e)) return bad(res, 'Email already exists', 409);
     throw e;
@@ -379,12 +391,64 @@ app.put('/api/users/:id', (req, res) => {
 });
 app.patch('/api/users/:id/active', (req, res) => {
   const id = Number(req.params.id);
-  if (!db.prepare('SELECT id FROM users WHERE id=?').get(id)) return bad(res, 'User not found', 404);
+  const target = db.prepare('SELECT * FROM users WHERE id=?').get(id);
+  if (!target) return bad(res, 'User not found', 404);
   const active = req.body?.active === true || req.body?.active === 'true';
+  if (!active) {
+    if (id === req.user.id) return bad(res, 'You cannot disable your own account', 409);
+    if (target.role === 'Administrator' && auth.countActiveAdmins() <= 1) return bad(res, 'At least one active Administrator is required', 409);
+  }
   db.prepare('UPDATE users SET active=? WHERE id=?').run(active ? 1 : 0, id);
-  const user = db.prepare('SELECT * FROM users WHERE id=?').get(id);
-  io.emit('users:changed', user);
-  res.json({ ...user, active: !!user.active });
+  io.emit('users:changed', {});
+  res.json(userOut(db.prepare(`SELECT ${USER_COLS} FROM users WHERE id=?`).get(id)));
+});
+
+// ---------- authentication
+app.get('/api/auth/status', (req, res) => res.json({ needs_setup: !auth.hasAnyPassword() }));
+app.post('/api/auth/setup', (req, res) => {
+  if (auth.hasAnyPassword()) return bad(res, 'Setup is already complete', 409);
+  const b = req.body || {};
+  const name = String(b.name || '').trim(), email = String(b.email || '').trim().toLowerCase();
+  const password = String(b.password || '');
+  if (!name || !isEmail(email)) return bad(res, 'Name and a valid email are required');
+  if (password.length < 8) return bad(res, 'Password must be at least 8 characters');
+  const hash = auth.hashPassword(password);
+  const existing = db.prepare('SELECT id FROM users WHERE email=?').get(email);
+  let id;
+  if (existing) {
+    db.prepare("UPDATE users SET name=?,role='Administrator',active=1,password_hash=? WHERE id=?").run(name, hash, existing.id);
+    id = existing.id;
+  } else {
+    id = db.prepare("INSERT INTO users(name,email,role,password_hash) VALUES(?,?,'Administrator',?)").run(name, email, hash).lastInsertRowid;
+  }
+  const user = auth.publicUser(db.prepare('SELECT * FROM users WHERE id=?').get(id));
+  auth.login(req, res, user);
+  res.status(201).json(auth.withPerms(user));
+});
+app.post('/api/auth/login', (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+  const u = db.prepare('SELECT * FROM users WHERE email=?').get(email);
+  if (!u || !u.active || !auth.verifyPassword(password, u.password_hash)) return bad(res, 'Email or password is incorrect', 401);
+  const user = auth.publicUser(u);
+  auth.login(req, res, user);
+  res.json(auth.withPerms(user));
+});
+app.post('/api/auth/logout', (req, res) => { auth.logout(req, res); res.json({ ok: true }); });
+app.get('/api/auth/me', (req, res) => {
+  const u = auth.currentUser(req);
+  if (!u) return bad(res, 'Not logged in', 401);
+  res.json(auth.withPerms(u));
+});
+app.post('/api/auth/password', (req, res) => {
+  const u = auth.currentUser(req);
+  if (!u) return bad(res, 'Not logged in', 401);
+  const row = db.prepare('SELECT password_hash FROM users WHERE id=?').get(u.id);
+  if (!auth.verifyPassword(String(req.body?.current || ''), row.password_hash)) return bad(res, 'Current password is incorrect', 400);
+  const next = String(req.body?.new || '');
+  if (next.length < 8) return bad(res, 'New password must be at least 8 characters');
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(auth.hashPassword(next), u.id);
+  res.json({ ok: true });
 });
 
 // ---------- unknown api + errors

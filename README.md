@@ -72,6 +72,17 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - `public/js/display.js` — tablet display.
 - `public/css/style.css` (base theme) and `public/css/components.css` (modals, pills, calendar, display).
 
+## Login and roles
+- First visit: if no account exists, the login page asks you to create the first **Administrator**.
+- Administrator: full access (rooms, all bookings, approve, users, room displays, settings).
+- Staff: view dashboard, rooms, bookings and calendar; create bookings; edit or cancel **only bookings they created**.
+- Every API call checks the session and the role on the server, so hidden buttons cannot be bypassed.
+- Users change their own password from the key icon in the top bar. Administrators set passwords in **Users**.
+- Tablet displays (`display.html`) stay public so they can run without a login. Anyone with the display URL can see room status and meeting titles.
+- Bookings created before this version have no creator, so only Administrators can change them.
+- Sessions last 12 hours. Logout is in the top bar.
+
+Not included yet: password reset by email, login rate limiting, and two-factor login.
+
 ## Not included yet
-- Login and role-based permissions. Currently anyone who can reach the server has admin access. Put it on a trusted network or add authentication before exposing it.
 - HTTPS, recurring bookings, email/push notifications, and a production deployment setup.

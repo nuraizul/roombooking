@@ -6,7 +6,7 @@
       <div class="stats" id="stats"></div>
       <section class="panel">
         <div class="panel-head"><div><h2>Room overview</h2><p>Live status of every active room</p></div>
-          <div class="actions"><button class="btn primary" id="new-b"><i class="fa-solid fa-plus"></i> New booking</button></div></div>
+          <div class="actions"><button class="btn primary" id="new-b" data-need="bookings.create"><i class="fa-solid fa-plus"></i> New booking</button></div></div>
         <div class="room-grid" id="rooms"></div>
       </section>
       <section class="panel">
