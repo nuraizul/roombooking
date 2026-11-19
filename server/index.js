@@ -335,7 +335,7 @@ app.get('/api/display/:deviceCode', (req, res) => {
   const list = db.prepare(`${BOOKING_SQL} WHERE b.room_id=? AND b.status!='Cancelled' AND b.end_at>? ORDER BY b.start_at LIMIT 12`)
     .all(room.id, now).map(b => bookingShape(b, now));
   const current = list.find(b => b.time_state === 'Ongoing') || null;
-  const upcoming = list.filter(b => b.time_state === 'Upcoming').slice(0, 6);
+  const upcoming = list.filter(b => b.time_state === 'Upcoming').slice(0, 1); // display shows only the next meeting
   res.json({ device, room: roomShape(room), current, upcoming, settings });
 });
 

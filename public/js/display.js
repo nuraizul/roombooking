@@ -42,9 +42,7 @@
           <div class="sub2">${next ? `Free from ${fmtTime(current.end_at)} · next: ${esc(next.title)} at ${fmtTime(next.start_at)}` : `Free from ${fmtTime(current.end_at)}`}</div></div>`
       : `<div class="state-card free"><div class="label">AVAILABLE NOW</div><div class="big">Room is free</div>
           <div class="sub2">${next ? `Next booking at ${fmtTime(next.start_at)} · ${esc(next.title)}` : 'No more bookings scheduled'}</div></div>`;
-    const list = upcoming.length ? `<div class="up-list"><h3>UPCOMING</h3>${upcoming.map(b => `
-        <div class="up-row"><div class="t">${fmtTime(b.start_at)} – ${fmtTime(b.end_at)}</div>
-        <div>${esc(b.title)}</div><div class="o">${esc(b.organizer)}${b.start_at.slice(0, 10) !== localToday() ? ' · ' + fmtDay(b.start_at) : ''}</div></div>`).join('')}</div>` : '';
+    // Only the next meeting is shown (one card), it changes automatically when a meeting starts or ends.
     root.innerHTML = `<div class="screen">
       <div class="screen-head">
         <div><div class="code">ROOM ${esc(room.room_no)}${room.floor ? ' · ' + esc(room.floor) : ''}</div>
@@ -52,7 +50,6 @@
         <div class="clock" id="clock"></div>
       </div>
       ${state}
-      ${list}
     </div>`;
     clock();
   }
