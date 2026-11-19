@@ -30,7 +30,12 @@ for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) seedSetting.run(k, JSON.s
 // ---------- time helpers: bookings are stored as local "YYYY-MM-DD HH:MM:SS" so string compare works
 const pad = n => String(n).padStart(2, '0');
 const fmtLocal = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-const nowStr = () => fmtLocal(new Date());
+// Status is decided by this clock. Force the venue timezone so it does not depend on the host (Railway runs in UTC).
+const APP_TZ = process.env.APP_TZ || 'Asia/Kuala_Lumpur';
+const nowStr = () => new Intl.DateTimeFormat('sv-SE', {
+  timeZone: APP_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+}).format(new Date()).replace('T', ' ');
 const todayStr = () => nowStr().slice(0, 10);
 const parseLocal = s => new Date(s.replace(' ', 'T'));
 const addMin = (s, m) => fmtLocal(new Date(parseLocal(s).getTime() + m * 60000));
@@ -128,6 +133,14 @@ function roomInput(b) {
 
 // ---------- health & settings
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'RoomFlow API', database: 'SQLite' }));
+// Diagnostic: shows the clock the server uses for booking status (should match your local time)
+app.get('/api/time', (req, res) => res.json({
+  server_local_time: nowStr(),
+  server_utc_time: new Date().toISOString(),
+  app_timezone: APP_TZ,
+  host_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  TZ_env: process.env.TZ || null
+}));
 
 app.get('/api/settings', (req, res) => res.json(getSettings()));
 app.put('/api/settings', (req, res) => {

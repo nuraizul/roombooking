@@ -71,13 +71,16 @@
 
   function schedule() {
     clearTimeout(timer);
-    timer = setTimeout(refresh, Math.max(5, settings.display_refresh_seconds || 30) * 1000);
+    // Status changes with time, so poll at most every 15s, and refresh whenever the screen comes back into view.
+    timer = setTimeout(refresh, Math.min(15, Math.max(5, settings.display_refresh_seconds || 15)) * 1000);
   }
 
   if (!code) {
     message('No device code', 'Open this page as <code>display.html?code=DISPLAY-101</code>.');
   } else {
     setInterval(clock, 15000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+    window.addEventListener('focus', refresh);
     refresh();
     if (typeof io === 'function') {
       socket = io();
