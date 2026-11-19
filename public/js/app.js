@@ -199,6 +199,7 @@
           <div class="crumb">Workspace &nbsp;›&nbsp; <b>${title}</b></div>
           <div class="top-right">
             <span class="online-pill" id="conn"><i class="dot"></i> <span>Connecting…</span></span>
+            <button class="btn small theme-btn" id="theme" title="Switch light / dark mode"><i class="fa-solid fa-moon"></i></button>
             <button class="btn small" id="pwd" title="Change password"><i class="fa-solid fa-key"></i></button>
             <span class="who">${esc(RF.me.name)} <small>${esc(RF.me.role)}</small></span>
             <button class="btn small" id="logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
@@ -253,6 +254,15 @@
       location.href = 'login.html';
     };
     document.getElementById('pwd').onclick = changePassword;
+    const themeBtn = document.getElementById('theme');
+    const paintTheme = () => { themeBtn.innerHTML = `<i class="fa-solid fa-${document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon'}"></i>`; };
+    paintTheme();
+    themeBtn.onclick = () => {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem('rf-theme', next);
+      paintTheme();
+    };
     new MutationObserver(() => applyPerms(document.body)).observe(document.body, { childList: true, subtree: true });
     const mod = RF.pages[page];
     if (!mod) return;
