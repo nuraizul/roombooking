@@ -44,7 +44,6 @@ const DEFAULT_SETTINGS = {
   buffer_minutes: 0,
   allow_same_day: true,
   require_approval: false,
-  approval_roles: ['Staff'],
   display_refresh_seconds: 30
 };
 
@@ -107,8 +106,10 @@ function bookingShape(b, now = nowStr()) {
 const getBooking = id => bookingShape(db.prepare(`${BOOKING_SQL} WHERE b.id=?`).get(id));
 
 // ---------- approval: enabled in Settings, and only for bookings made by the chosen roles
+// Roles that hold "Approve pending bookings" book without waiting; everyone else waits when approval is on.
 function bookingStatusFor(role, s) {
-  return s.require_approval && (s.approval_roles || []).includes(role) ? 'Pending' : 'Confirmed';
+  const canApprove = auth.permsFor(role).includes('bookings.approve');
+  return s.require_approval && !canApprove ? 'Pending' : 'Confirmed';
 }
 
 // ---------- booking rules
@@ -192,18 +193,12 @@ app.put('/api/settings', (req, res) => {
       updates[k] = n;
     } else if (typeof def === 'boolean') {
       updates[k] = v === true || v === 'true';
-    } else if (Array.isArray(def)) {
-      updates[k] = Array.isArray(v) ? [...new Set(v.map(String))] : [];
     } else {
       updates[k] = String(v).trim().slice(0, 100);
     }
   }
   if (updates.time_format !== undefined && !['12', '24'].includes(updates.time_format)) return bad(res, 'time_format must be 12 or 24');
   if (updates.default_layout !== undefined && !LAYOUTS.includes(updates.default_layout)) return bad(res, 'Default layout must be landscape or portrait');
-  if (updates.approval_roles) {
-    const unknownRole = updates.approval_roles.find(n => !db.prepare('SELECT 1 FROM roles WHERE name=?').get(n));
-    if (unknownRole) return bad(res, `Role "${unknownRole}" does not exist`);
-  }
   if (updates.default_template !== undefined && !TEMPLATES.includes(updates.default_template)) return bad(res, 'Unknown default design');
   if (updates.default_duration !== undefined && (updates.default_duration < 5 || updates.default_duration > 720)) return bad(res, 'Default duration must be 5 to 720 minutes');
   if (updates.buffer_minutes !== undefined && (updates.buffer_minutes < 0 || updates.buffer_minutes > 120)) return bad(res, 'Buffer must be 0 to 120 minutes');

@@ -88,13 +88,10 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - Layout only arranges the content. To lock the physical tablet to portrait or landscape, turn off auto-rotate on the tablet or set orientation in the app.
 
 ## Booking approval
-- **Settings → Booking approval**:
-  - **Enable booking approval**: turn the feature on or off. When off, every booking is confirmed straight away.
-  - **Roles whose bookings need approval**: tick the roles (for example Staff). Bookings made by ticked roles start as *Pending*. Other roles (such as Administrator) are confirmed straight away.
-- **Who can approve**: any role with the **Approve pending bookings** permission (set on the Roles page). Administrator always has it.
-- **Approve or reject**: on the Bookings page. Rejecting can include a reason, which the person who booked sees.
-- **Pending** bookings hold the room. **Rejected** bookings free it.
-- If someone's booking is rejected, they can edit it, which sends it for approval again.
+- **Settings → Approve pending booking**: turn the feature ON or OFF with one switch. OFF means every booking is confirmed straight away.
+- **Who can approve** is set on the **Roles** page: tick **Approve pending bookings** on a role. Administrator always has it. Roles with this permission book without waiting.
+- When ON, bookings from roles without that permission start as **Pending** and hold the room until an approver acts on the Bookings page (Approve, or Reject with an optional reason).
+- A **rejected** booking frees the room. The person who booked can edit it to send it for approval again.
 
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.
