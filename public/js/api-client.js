@@ -50,6 +50,7 @@
     assignDevice: (id, room_id) => request(`/devices/${id}/assign`, { method: 'PATCH', body: { room_id } }),
     deleteDevice: id => request(`/devices/${id}`, { method: 'DELETE' }),
     getDisplay: code => request(`/display/${encodeURIComponent(code)}`),
+    setDeviceDisplay: (id, o) => request(`/devices/${id}/display`, { method: 'PATCH', body: o }),
 
     getRoles: () => request('/roles'),
     addRole: r => request('/roles', { method: 'POST', body: r }),

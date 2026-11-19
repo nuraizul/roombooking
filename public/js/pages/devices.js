@@ -2,7 +2,7 @@
   const A = window.RoomFlowAPI, RF = window.RF;
   RF.pages.display = {
     events: ['devices:changed', 'rooms:changed'],
-    devices: [], rooms: [],
+    devices: [], rooms: [], settings: {},
     async init(el) {
       this.el = el;
       el.innerHTML = `
@@ -21,8 +21,12 @@
       await this.load();
     },
     async load() {
-      const [devices, rooms] = await Promise.all([A.getDevices(), A.getRooms()]);
-      this.devices = devices; this.rooms = rooms;
+      const [devices, rooms, settings] = await Promise.all([A.getDevices(), A.getRooms(), A.getSettings()]);
+      this.devices = devices; this.rooms = rooms; this.settings = settings;
+      const L = { landscape: 'Landscape', portrait: 'Portrait' };
+      const T = { classic: 'Classic', minimal: 'Minimal', bold: 'Bold' };
+      const layoutOpts = v => `<option value="">Default (${L[this.settings.default_layout]})</option>` + Object.entries(L).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('');
+      const tplOpts = v => `<option value="">Default (${T[this.settings.default_template]})</option>` + Object.entries(T).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('');
       const online = devices.filter(d => d.online).length;
       this.el.querySelector('#stats').innerHTML = [
         ['Total devices', devices.length, 'Registered displays', 'fa-display', ''],
@@ -40,7 +44,9 @@
             <div class="meta">${d.last_seen ? 'Last seen ' + RF.fmtTime(d.last_seen) + ' ' + RF.fmtDate(d.last_seen) : 'Never connected'}</div>
           </div>
           <div class="dev-actions">
-            <select data-assign="${d.id}">${opts(d.room_id)}</select>
+            <select data-assign="${d.id}" title="Room">${opts(d.room_id)}</select>
+            <select data-layout="${d.id}" title="Layout">${layoutOpts(d.layout)}</select>
+            <select data-tpl="${d.id}" title="Design">${tplOpts(d.template)}</select>
             <span class="pill ${d.online ? 'green' : 'gray'}">${d.online ? 'Online' : 'Offline'}</span>
             <a class="btn small" href="display.html?code=${encodeURIComponent(d.device_code)}" target="_blank"><i class="fa-solid fa-up-right-from-square"></i></a>
             <button class="btn small danger" data-del="${d.id}"><i class="fa-solid fa-trash"></i></button>
@@ -50,6 +56,14 @@
         try { await A.assignDevice(s.dataset.assign, s.value || null); RF.toast('Device assigned'); this.load(); }
         catch (e) { RF.toast(e.message, 'error'); }
       });
+      const saveDisplay = async id => {
+        const lay = this.el.querySelector(`[data-layout="${id}"]`).value || null;
+        const tpl = this.el.querySelector(`[data-tpl="${id}"]`).value || null;
+        try { await A.setDeviceDisplay(id, { layout: lay, template: tpl }); RF.toast('Display updated'); this.load(); }
+        catch (e) { RF.toast(e.message, 'error'); }
+      };
+      this.el.querySelectorAll('[data-layout]').forEach(s => s.onchange = () => saveDisplay(s.dataset.layout));
+      this.el.querySelectorAll('[data-tpl]').forEach(s => s.onchange = () => saveDisplay(s.dataset.tpl));
       this.el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
         if (!RF.confirm('Remove this device registration?')) return;
         try { await A.deleteDevice(b.dataset.del); RF.toast('Device removed'); this.load(); }

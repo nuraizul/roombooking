@@ -110,6 +110,7 @@ const RULES = [
   ['POST', /^\/api\/devices\/register$/, 'devices.manage'],
   ['PATCH', /^\/api\/devices\/\d+\/assign$/, 'devices.manage'],
   ['DELETE', /^\/api\/devices\/\d+$/, 'devices.manage'],
+  ['PATCH', /^\/api\/devices\/\d+\/display$/, 'devices.manage'],
   ['GET', /^\/api\/users$/, 'users.manage'],
   ['POST', /^\/api\/users$/, 'users.manage'],
   ['PUT', /^\/api\/users\/\d+$/, 'users.manage'],

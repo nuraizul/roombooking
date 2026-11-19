@@ -5,10 +5,32 @@ const { Server } = require('socket.io');
 const db = require('./db');
 const auth = require('./auth');
 
+// Per-device display options (null = use the default from Settings)
+{
+  const cols = db.prepare('PRAGMA table_info(devices)').all().map(c => c.name);
+  if (!cols.includes('layout')) db.exec('ALTER TABLE devices ADD COLUMN layout TEXT');
+  if (!cols.includes('template')) db.exec('ALTER TABLE devices ADD COLUMN template TEXT');
+}
+const displayOptionsInput = b => {
+  const layout = b.layout === undefined || b.layout === '' || b.layout === null ? null : String(b.layout);
+  const template = b.template === undefined || b.template === '' || b.template === null ? null : String(b.template);
+  if (layout && !LAYOUTS.includes(layout)) return { error: 'Layout must be landscape or portrait' };
+  if (template && !TEMPLATES.includes(template)) return { error: 'Unknown design' };
+  return { value: { layout, template } };
+};
+const effectiveDisplay = (device, s) => ({
+  layout: device.layout || s.default_layout,
+  template: device.template || s.default_template
+});
+
 const PORT = process.env.PORT || 3000;
 const ONLINE_WINDOW_MIN = 2;
 const ROLES = ['Administrator', 'Staff'];
+const LAYOUTS = ['landscape', 'portrait'];
+const TEMPLATES = ['classic', 'minimal', 'bold'];
 const DEFAULT_SETTINGS = {
+  default_layout: 'landscape',
+  default_template: 'classic',
   system_name: 'RoomFlow Booking System',
   organization: 'Your Organization',
   time_format: '12',
@@ -162,6 +184,8 @@ app.put('/api/settings', (req, res) => {
     }
   }
   if (updates.time_format !== undefined && !['12', '24'].includes(updates.time_format)) return bad(res, 'time_format must be 12 or 24');
+  if (updates.default_layout !== undefined && !LAYOUTS.includes(updates.default_layout)) return bad(res, 'Default layout must be landscape or portrait');
+  if (updates.default_template !== undefined && !TEMPLATES.includes(updates.default_template)) return bad(res, 'Unknown default design');
   if (updates.default_duration !== undefined && (updates.default_duration < 5 || updates.default_duration > 720)) return bad(res, 'Default duration must be 5 to 720 minutes');
   if (updates.buffer_minutes !== undefined && (updates.buffer_minutes < 0 || updates.buffer_minutes > 120)) return bad(res, 'Buffer must be 0 to 120 minutes');
   if (updates.display_refresh_seconds !== undefined && (updates.display_refresh_seconds < 5 || updates.display_refresh_seconds > 3600)) return bad(res, 'Display refresh must be 5 to 3600 seconds');
@@ -293,11 +317,13 @@ app.post('/api/devices/register', (req, res) => {
   const device_name = String(b.device_name || '').trim();
   const platform = String(b.platform || 'Android').trim().slice(0, 40);
   const room_id = b.room_id ? Number(b.room_id) : null;
+  const opts = displayOptionsInput(b);
+  if (opts.error) return bad(res, opts.error);
   if (!device_code || !device_name) return bad(res, 'Device code and device name are required');
   if (!/^[A-Z0-9_-]{2,40}$/.test(device_code)) return bad(res, 'Device code may only use letters, numbers, - and _');
   if (room_id && !db.prepare('SELECT id FROM rooms WHERE id=? AND active=1').get(room_id)) return bad(res, 'Room not found', 404);
   try {
-    const info = db.prepare('INSERT INTO devices(device_code,device_name,platform,room_id) VALUES(?,?,?,?)').run(device_code, device_name, platform, room_id);
+    const info = db.prepare('INSERT INTO devices(device_code,device_name,platform,room_id,layout,template) VALUES(?,?,?,?,?,?)').run(device_code, device_name, platform, room_id, opts.value.layout, opts.value.template);
     const device = db.prepare('SELECT * FROM devices WHERE id=?').get(info.lastInsertRowid);
     io.emit('devices:changed', {});
     res.status(201).json(device);
@@ -318,6 +344,18 @@ app.patch('/api/devices/:id/assign', (req, res) => {
   io.emit('devices:changed', {});
   res.json(updated);
 });
+app.patch('/api/devices/:id/display', (req, res) => {
+  const id = Number(req.params.id);
+  const device = db.prepare('SELECT * FROM devices WHERE id=?').get(id);
+  if (!device) return bad(res, 'Device not found', 404);
+  const opts = displayOptionsInput(req.body || {});
+  if (opts.error) return bad(res, opts.error);
+  db.prepare('UPDATE devices SET layout=?, template=? WHERE id=?').run(opts.value.layout, opts.value.template, id);
+  const updated = db.prepare('SELECT * FROM devices WHERE id=?').get(id);
+  io.to(`device:${updated.device_code}`).emit('display:refresh');
+  io.emit('devices:changed', {});
+  res.json(updated);
+});
 app.delete('/api/devices/:id', (req, res) => {
   const device = db.prepare('SELECT * FROM devices WHERE id=?').get(Number(req.params.id));
   if (!device) return bad(res, 'Device not found', 404);
@@ -332,15 +370,16 @@ app.get('/api/display/:deviceCode', (req, res) => {
   db.prepare('UPDATE devices SET last_seen=? WHERE id=?').run(now, device.id);
   const s = getSettings();
   const settings = { system_name: s.system_name, time_format: s.time_format, display_refresh_seconds: s.display_refresh_seconds };
+  const display = effectiveDisplay(device, s);
   const room = device.room_id ? db.prepare('SELECT * FROM rooms WHERE id=? AND active=1').get(device.room_id) : null;
-  if (!room) return res.json({ device, room: null, current: null, upcoming: [], schedule: [], server_now: now, settings });
+  if (!room) return res.json({ device, room: null, current: null, upcoming: [], schedule: [], server_now: now, settings, display: effectiveDisplay(device, s) });
   const list = db.prepare(`${BOOKING_SQL} WHERE b.room_id=? AND b.status!='Cancelled' AND b.end_at>? ORDER BY b.start_at LIMIT 12`)
     .all(room.id, now).map(b => bookingShape(b, now));
   const current = list.find(b => b.time_state === 'Ongoing') || null;
   const upcoming = list.filter(b => b.time_state === 'Upcoming').slice(0, 1); // display shows only the next meeting
   // schedule: the next few live bookings, so the tablet can keep working offline from its saved copy
   const schedule = list.map(b => ({ id: b.id, title: b.title, organizer: b.organizer, start_at: b.start_at, end_at: b.end_at, status: b.status }));
-  res.json({ device, room: roomShape(room), current, upcoming, schedule, server_now: now, settings });
+  res.json({ device, room: roomShape(room), current, upcoming, schedule, server_now: now, settings, display });
 });
 
 // ---------- users (admin only, enforced by auth rules)

@@ -73,7 +73,10 @@
           <div class="sub2">${next ? `Free from ${fmtTime(current.end_at)} · next: ${esc(next.title)} at ${fmtTime(next.start_at)}` : `Free from ${fmtTime(current.end_at)}`}</div></div>`
       : `<div class="state-card free"><div class="label">AVAILABLE NOW</div><div class="big">Room is free</div>
           <div class="sub2">${next ? `Next booking at ${fmtTime(next.start_at)} · ${esc(next.title)}` : 'No more bookings scheduled'}</div></div>`;
-    root.innerHTML = `<div class="screen">
+    // layout (landscape / portrait) and design (classic / minimal / bold) come from the server
+    const disp = data.display || { layout: 'landscape', template: 'classic' };
+    const cls = `screen layout-${disp.layout} tpl-${disp.template} ${current ? 'is-busy' : 'is-free'}`;
+    root.innerHTML = `<div class="${cls}">
       <div class="screen-head">
         <div><div class="code">ROOM ${esc(room.room_no)}${room.floor ? ' · ' + esc(room.floor) : ''}</div>
           <h1>${esc(room.name)}</h1><div class="loc">${room.capacity} seats · ${esc(settings.system_name)}</div></div>

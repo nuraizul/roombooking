@@ -79,6 +79,14 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - The display uses the server's clock, so the status stays right even if the tablet's timezone is wrong.
 - Offline mode cannot show new bookings made after the tablet went offline. It shows the room as Available or In use based on the last schedule it received.
 
+## Display layout and design
+- **Settings → Display defaults**: choose the default **layout** (Landscape or Portrait) and **design** (Classic, Minimal or Bold) for all room displays.
+- **Room Displays**: each tablet has its own **Layout** and **Design** dropdown. Choose "Default" to follow Settings, or pick one to override it for that tablet. Changes reach the tablet immediately.
+- **Classic**: the dark look with a coloured status card.
+- **Minimal**: light background, plain card, large text.
+- **Bold**: the whole screen is green when the room is free and orange when it is in use.
+- Layout only arranges the content. To lock the physical tablet to portrait or landscape, turn off auto-rotate on the tablet or set orientation in the app.
+
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.
 - **Roles page** (Administrators only): create roles and tick what each role can access. The built-in Administrator role always has everything.

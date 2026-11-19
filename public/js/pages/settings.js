@@ -1,5 +1,6 @@
 (function () {
   const A = window.RoomFlowAPI, RF = window.RF;
+  const TEMPLATES = [['classic', 'Classic'], ['minimal', 'Minimal'], ['bold', 'Bold']];
   RF.pages.settings = {
     events: [],
     async init(el) {
@@ -7,8 +8,21 @@
       const s = await A.getSettings();
       const sw = (name, label, desc) => `<div class="toggle-row"><div><strong>${label}</strong><p>${desc}</p></div>
         <input type="checkbox" class="switch" name="${name}" ${s[name] ? 'checked' : ''}></div>`;
+      const layoutSel = v => `<select name="default_layout"><option value="landscape" ${v === 'landscape' ? 'selected' : ''}>Landscape (wide screen)</option><option value="portrait" ${v === 'portrait' ? 'selected' : ''}>Portrait (tall screen)</option></select>`;
+      const tplSel = v => `<select name="default_template">${TEMPLATES.map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
       el.innerHTML = `
         <form id="sf" novalidate>
+          <section class="panel">
+            <div class="panel-head"><div><h2>Display defaults</h2><p>Used by every room display unless a tablet has its own choice in Room Displays</p></div></div>
+            <div class="form-grid">
+              <div class="field"><label>Default layout</label>${layoutSel(s.default_layout)}</div>
+              <div class="field"><label>Default design</label>${tplSel(s.default_template)}</div>
+            </div>
+            <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.6">
+              <b>Classic</b>: the dark look with a coloured status card.<br>
+              <b>Minimal</b>: light background, plain card, large text. Good for bright rooms.<br>
+              <b>Bold</b>: the whole screen turns green when the room is free and orange when in use. Easy to read from the door.</p>
+          </section>
           <section class="panel">
             <div class="panel-head"><div><h2>General</h2><p>Shown in the header and on displays</p></div></div>
             <div class="form-grid">
@@ -37,6 +51,7 @@
         const f = e.target, v = RF.readForm(f);
         const payload = {
           system_name: v.system_name, organization: v.organization, time_format: v.time_format,
+          default_layout: v.default_layout, default_template: v.default_template,
           display_refresh_seconds: Number(v.display_refresh_seconds), default_duration: Number(v.default_duration),
           buffer_minutes: Number(v.buffer_minutes), allow_same_day: !!v.allow_same_day, require_approval: !!v.require_approval
         };
