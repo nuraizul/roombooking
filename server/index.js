@@ -402,7 +402,8 @@ app.get('/api/display/:deviceCode', (req, res) => {
   const display = effectiveDisplay(device, s);
   const room = device.room_id ? db.prepare('SELECT * FROM rooms WHERE id=? AND active=1').get(device.room_id) : null;
   if (!room) return res.json({ device, room: null, current: null, upcoming: [], schedule: [], server_now: now, settings, display: effectiveDisplay(device, s) });
-  const list = db.prepare(`${BOOKING_SQL} WHERE b.room_id=? AND b.status NOT IN ${FREE_STATUSES} AND b.end_at>? ORDER BY b.start_at LIMIT 12`)
+  // The tablet only shows confirmed meetings. Pending requests wait for approval and are not shown.
+  const list = db.prepare(`${BOOKING_SQL} WHERE b.room_id=? AND b.status NOT IN ('Cancelled','Rejected','Pending') AND b.end_at>? ORDER BY b.start_at LIMIT 12`)
     .all(room.id, now).map(b => bookingShape(b, now));
   const current = list.find(b => b.time_state === 'Ongoing') || null;
   const upcoming = list.filter(b => b.time_state === 'Upcoming').slice(0, 1); // display shows only the next meeting

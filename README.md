@@ -91,6 +91,7 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - **Settings → Approve pending booking**: turn the feature ON or OFF with one switch. OFF means every booking is confirmed straight away.
 - **Who can approve** is set on the **Roles** page: tick **Approve pending bookings** on a role. Administrator always has it. Roles with this permission book without waiting.
 - When ON, bookings from roles without that permission start as **Pending** and hold the room until an approver acts on the Bookings page (Approve, or Reject with an optional reason).
+- The **tablet display only shows confirmed meetings**. Pending requests are not shown there until they are approved.
 - A **rejected** booking frees the room. The person who booked can edit it to send it for approval again.
 
 ## Login and roles
