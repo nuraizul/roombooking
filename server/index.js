@@ -12,7 +12,7 @@ const DEFAULT_SETTINGS = {
   organization: 'Your Organization',
   time_format: '12',
   default_duration: 60,
-  buffer_minutes: 10,
+  buffer_minutes: 0,
   allow_same_day: true,
   require_approval: false,
   display_refresh_seconds: 30
