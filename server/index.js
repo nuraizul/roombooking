@@ -11,6 +11,12 @@ const auth = require('./auth');
   if (!cols.includes('layout')) db.exec('ALTER TABLE devices ADD COLUMN layout TEXT');
   if (!cols.includes('template')) db.exec('ALTER TABLE devices ADD COLUMN template TEXT');
 }
+{
+  const bcols = db.prepare('PRAGMA table_info(bookings)').all().map(c => c.name);
+  if (!bcols.includes('reject_reason')) db.exec('ALTER TABLE bookings ADD COLUMN reject_reason TEXT');
+}
+// Statuses that do not hold the room
+const FREE_STATUSES = "('Cancelled','Rejected')";
 const displayOptionsInput = b => {
   const layout = b.layout === undefined || b.layout === '' || b.layout === null ? null : String(b.layout);
   const template = b.template === undefined || b.template === '' || b.template === null ? null : String(b.template);
@@ -38,6 +44,7 @@ const DEFAULT_SETTINGS = {
   buffer_minutes: 0,
   allow_same_day: true,
   require_approval: false,
+  approval_roles: ['Staff'],
   display_refresh_seconds: 30
 };
 
@@ -91,6 +98,7 @@ const BOOKING_SQL = 'SELECT b.*, r.room_no, r.name AS room_name FROM bookings b 
 function bookingShape(b, now = nowStr()) {
   let time_state;
   if (b.status === 'Cancelled') time_state = 'Cancelled';
+  else if (b.status === 'Rejected') time_state = 'Rejected';
   else if (b.end_at <= now) time_state = 'Completed';
   else if (b.start_at <= now) time_state = 'Ongoing';
   else time_state = 'Upcoming';
@@ -98,11 +106,16 @@ function bookingShape(b, now = nowStr()) {
 }
 const getBooking = id => bookingShape(db.prepare(`${BOOKING_SQL} WHERE b.id=?`).get(id));
 
+// ---------- approval: enabled in Settings, and only for bookings made by the chosen roles
+function bookingStatusFor(role, s) {
+  return s.require_approval && (s.approval_roles || []).includes(role) ? 'Pending' : 'Confirmed';
+}
+
 // ---------- booking rules
 function findConflict(room_id, start, end, excludeId, buffer) {
   const from = addMin(start, -buffer), to = addMin(end, buffer);
   return db.prepare(`SELECT id,title,start_at,end_at FROM bookings
-    WHERE room_id=? AND status!='Cancelled' AND id!=? AND start_at<? AND end_at>? LIMIT 1`)
+    WHERE room_id=? AND status NOT IN ${FREE_STATUSES} AND id!=? AND start_at<? AND end_at>? LIMIT 1`)
     .get(room_id, excludeId || 0, to, from);
 }
 function validateBooking(body, id = null) {
@@ -135,7 +148,7 @@ function broadcastBooking(type, booking, oldRoomId) {
 function roomsWithStatus() {
   const now = nowStr();
   const rooms = db.prepare('SELECT * FROM rooms WHERE active=1 ORDER BY room_no').all().map(roomShape);
-  const upcoming = db.prepare(`${BOOKING_SQL} WHERE b.status!='Cancelled' AND b.end_at>? AND r.active=1 ORDER BY b.start_at`)
+  const upcoming = db.prepare(`${BOOKING_SQL} WHERE b.status NOT IN ${FREE_STATUSES} AND b.end_at>? AND r.active=1 ORDER BY b.start_at`)
     .all(now).map(b => bookingShape(b, now));
   return rooms.map(room => {
     const mine = upcoming.filter(b => b.room_id === room.id);
@@ -179,12 +192,18 @@ app.put('/api/settings', (req, res) => {
       updates[k] = n;
     } else if (typeof def === 'boolean') {
       updates[k] = v === true || v === 'true';
+    } else if (Array.isArray(def)) {
+      updates[k] = Array.isArray(v) ? [...new Set(v.map(String))] : [];
     } else {
       updates[k] = String(v).trim().slice(0, 100);
     }
   }
   if (updates.time_format !== undefined && !['12', '24'].includes(updates.time_format)) return bad(res, 'time_format must be 12 or 24');
   if (updates.default_layout !== undefined && !LAYOUTS.includes(updates.default_layout)) return bad(res, 'Default layout must be landscape or portrait');
+  if (updates.approval_roles) {
+    const unknownRole = updates.approval_roles.find(n => !db.prepare('SELECT 1 FROM roles WHERE name=?').get(n));
+    if (unknownRole) return bad(res, `Role "${unknownRole}" does not exist`);
+  }
   if (updates.default_template !== undefined && !TEMPLATES.includes(updates.default_template)) return bad(res, 'Unknown default design');
   if (updates.default_duration !== undefined && (updates.default_duration < 5 || updates.default_duration > 720)) return bad(res, 'Default duration must be 5 to 720 minutes');
   if (updates.buffer_minutes !== undefined && (updates.buffer_minutes < 0 || updates.buffer_minutes > 120)) return bad(res, 'Buffer must be 0 to 120 minutes');
@@ -234,7 +253,7 @@ app.patch('/api/rooms/:id/active', (req, res) => {
   if (!db.prepare('SELECT id FROM rooms WHERE id=?').get(id)) return bad(res, 'Room not found', 404);
   const active = req.body?.active === true || req.body?.active === 'true';
   if (!active) {
-    const n = db.prepare("SELECT COUNT(*) AS n FROM bookings WHERE room_id=? AND status!='Cancelled' AND end_at>?").get(id, nowStr()).n;
+    const n = db.prepare(`SELECT COUNT(*) AS n FROM bookings WHERE room_id=? AND status NOT IN ${FREE_STATUSES} AND end_at>?`).get(id, nowStr()).n;
     if (n) return bad(res, 'This room still has upcoming bookings. Cancel them first.', 409);
   }
   db.prepare('UPDATE rooms SET active=? WHERE id=?').run(active ? 1 : 0, id);
@@ -263,7 +282,7 @@ app.post('/api/bookings', (req, res) => {
   const v = validateBooking(req.body || {});
   if (v.error) return bad(res, v.error, v.conflict ? 409 : 400);
   const { room_id, title, organizer, start_at, end_at } = v.value;
-  const status = getSettings().require_approval ? 'Pending' : 'Confirmed';
+  const status = bookingStatusFor(req.user.role, getSettings());
   const info = db.prepare('INSERT INTO bookings(room_id,title,organizer,start_at,end_at,status,created_by) VALUES(?,?,?,?,?,?,?)')
     .run(room_id, title, organizer, start_at, end_at, status, req.user.id);
   const booking = getBooking(info.lastInsertRowid);
@@ -278,7 +297,10 @@ app.put('/api/bookings/:id', (req, res) => {
   const v = validateBooking(req.body || {}, id);
   if (v.error) return bad(res, v.error, v.conflict ? 409 : 400);
   const { room_id, title, organizer, start_at, end_at } = v.value;
-  db.prepare('UPDATE bookings SET room_id=?,title=?,organizer=?,start_at=?,end_at=? WHERE id=?').run(room_id, title, organizer, start_at, end_at, id);
+  // a rejected booking that the owner edits goes back through approval
+  const newStatus = old.status === 'Rejected' ? bookingStatusFor(req.user.role, getSettings()) : old.status;
+  db.prepare('UPDATE bookings SET room_id=?,title=?,organizer=?,start_at=?,end_at=?,status=?,reject_reason=NULL WHERE id=?')
+    .run(room_id, title, organizer, start_at, end_at, newStatus, id);
   const booking = getBooking(id);
   broadcastBooking('updated', booking, old.room_id);
   res.json(booking);
@@ -288,9 +310,21 @@ app.patch('/api/bookings/:id/cancel', (req, res) => {
   const b = db.prepare('SELECT * FROM bookings WHERE id=?').get(id);
   if (!b) return bad(res, 'Booking not found', 404);
   if (b.status === 'Cancelled') return bad(res, 'Booking is already cancelled', 409);
+  if (b.status === 'Rejected') return bad(res, 'Rejected bookings do not need cancelling', 409);
   db.prepare("UPDATE bookings SET status='Cancelled' WHERE id=?").run(id);
   const booking = getBooking(id);
   broadcastBooking('cancelled', booking);
+  res.json(booking);
+});
+app.patch('/api/bookings/:id/reject', (req, res) => {
+  const id = Number(req.params.id);
+  const b = db.prepare('SELECT * FROM bookings WHERE id=?').get(id);
+  if (!b) return bad(res, 'Booking not found', 404);
+  if (b.status !== 'Pending') return bad(res, 'Only pending bookings can be rejected', 409);
+  const reason = String(req.body?.reason || '').trim().slice(0, 200) || null;
+  db.prepare("UPDATE bookings SET status='Rejected', reject_reason=? WHERE id=?").run(reason, id);
+  const booking = getBooking(id);
+  broadcastBooking('rejected', booking);
   res.json(booking);
 });
 app.patch('/api/bookings/:id/approve', (req, res) => {
@@ -373,7 +407,7 @@ app.get('/api/display/:deviceCode', (req, res) => {
   const display = effectiveDisplay(device, s);
   const room = device.room_id ? db.prepare('SELECT * FROM rooms WHERE id=? AND active=1').get(device.room_id) : null;
   if (!room) return res.json({ device, room: null, current: null, upcoming: [], schedule: [], server_now: now, settings, display: effectiveDisplay(device, s) });
-  const list = db.prepare(`${BOOKING_SQL} WHERE b.room_id=? AND b.status!='Cancelled' AND b.end_at>? ORDER BY b.start_at LIMIT 12`)
+  const list = db.prepare(`${BOOKING_SQL} WHERE b.room_id=? AND b.status NOT IN ${FREE_STATUSES} AND b.end_at>? ORDER BY b.start_at LIMIT 12`)
     .all(room.id, now).map(b => bookingShape(b, now));
   const current = list.find(b => b.time_state === 'Ongoing') || null;
   const upcoming = list.filter(b => b.time_state === 'Upcoming').slice(0, 1); // display shows only the next meeting

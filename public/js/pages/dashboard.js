@@ -20,7 +20,7 @@
       const el = this.el, today = RF.today();
       const [rooms, bookings] = await Promise.all([A.getRoomStatus(), A.getBookings({ from: today, to: today })]);
       const occupied = rooms.filter(r => r.status === 'Occupied').length;
-      const active = bookings.filter(b => b.status !== 'Cancelled');
+      const active = bookings.filter(b => b.status !== 'Cancelled' && b.status !== 'Rejected');
       const pending = (await A.getBookings({ from: today, to: RF.dateStr(new Date(Date.now() + 30 * 864e5)) })).filter(b => b.status === 'Pending').length;
       el.querySelector('#stats').innerHTML = [
         ['Total rooms', rooms.length, 'Active rooms', 'fa-door-open', ''],

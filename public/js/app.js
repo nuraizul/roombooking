@@ -46,7 +46,8 @@
       Cancelled: ['red', 'Cancelled'],
       Ongoing: ['green', 'Ongoing'],
       Upcoming: ['blue', 'Upcoming'],
-      Completed: ['gray', 'Completed']
+      Completed: ['gray', 'Completed'],
+      Rejected: ['red', 'Rejected']
     };
     const key = b.status === 'Pending' ? 'Pending' : b.time_state;
     const [cls, label] = map[key] || map.Upcoming;
@@ -159,9 +160,8 @@
           const payload = { room_id: Number(v.room_id), title: v.title, organizer: v.organizer, start_at: v.start_at, end_at: v.end_at };
           err.textContent = '';
           try {
-            if (booking) await A.updateBooking(booking.id, payload);
-            else await A.createBooking(payload);
-            RF.toast(booking ? 'Booking updated' : 'Booking created');
+            const saved = booking ? await A.updateBooking(booking.id, payload) : await A.createBooking(payload);
+            RF.toast(saved.status === 'Pending' ? 'Sent for approval. The room is held until it is approved.' : (booking ? 'Booking updated' : 'Booking created'));
             close();
             onSaved && onSaved();
           } catch (ex) {

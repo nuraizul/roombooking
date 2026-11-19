@@ -41,7 +41,7 @@
       const { days, from, to } = this.range();
       const room = this.el.querySelector('#room').value;
       this.el.querySelector('#mlabel').textContent = `${MONTHS[this.cursor.getMonth()]} ${this.cursor.getFullYear()}`;
-      this.bookings = (await A.getBookings({ from, to, room_id: room })).filter(b => b.status !== 'Cancelled');
+      this.bookings = (await A.getBookings({ from, to, room_id: room })).filter(b => b.status !== 'Cancelled' && b.status !== 'Rejected');
       const byDay = {};
       this.bookings.forEach(b => (byDay[b.start_at.slice(0, 10)] = byDay[b.start_at.slice(0, 10)] || []).push(b));
       const today = RF.today();

@@ -17,7 +17,7 @@
             <input type="date" id="from" value="${addDays(0)}" title="From">
             <input type="date" id="to" value="${addDays(7)}" title="To">
             <select id="room"><option value="">All rooms</option></select>
-            <select id="status"><option value="">All statuses</option><option>Upcoming</option><option>Ongoing</option><option>Completed</option><option>Pending</option><option>Cancelled</option></select>
+            <select id="status"><option value="">All statuses</option><option>Upcoming</option><option>Ongoing</option><option>Completed</option><option>Pending</option><option>Rejected</option><option>Cancelled</option></select>
           </div>
           <div class="table-wrap" id="table"></div>
         </section>`;
@@ -39,7 +39,7 @@
       const t = RF.today(), list = this.items.filter(b => b.start_at.startsWith(t));
       const count = s => list.filter(b => (b.status === 'Pending' ? 'Pending' : b.time_state) === s).length;
       this.el.querySelector('#stats').innerHTML = [
-        ['Today', list.filter(b => b.status !== 'Cancelled').length, 'Bookings today', 'fa-calendar-check', ''],
+        ['Today', list.filter(b => b.status !== 'Cancelled' && b.status !== 'Rejected').length, 'Bookings today', 'fa-calendar-check', ''],
         ['Upcoming', count('Upcoming'), 'Still to come today', 'fa-clock', 'orange'],
         ['Completed', count('Completed'), 'Finished today', 'fa-check', 'green'],
         ['Cancelled', count('Cancelled'), 'Cancelled today', 'fa-ban', 'red']
@@ -57,15 +57,16 @@
     render() {
       const list = this.filtered();
       const rows = list.map(b => `<tr>
-        <td><strong>${RF.esc(b.title)}</strong><div class="muted">${RF.esc(b.organizer)}</div></td>
+        <td><strong>${RF.esc(b.title)}</strong><div class="muted">${RF.esc(b.organizer)}</div>${b.status === 'Rejected' && b.reject_reason ? `<div class="muted" style="color:var(--red)">Reason: ${RF.esc(b.reject_reason)}</div>` : ''}</td>
         <td>${RF.esc(b.room_no)} · ${RF.esc(b.room_name)}</td>
         <td>${RF.fmtDate(b.start_at)}</td>
         <td>${RF.timeRange(b)}</td>
         <td>${RF.statePill(b)}</td>
         <td><div class="table-actions">
-          ${b.status === 'Pending' ? `<button class="btn small" data-need="bookings.approve" data-approve="${b.id}">Approve</button>` : ''}
+          ${b.status === 'Pending' ? `<button class="btn small" data-need="bookings.approve" data-approve="${b.id}">Approve</button>
+          <button class="btn small danger" data-need="bookings.approve" data-reject="${b.id}">Reject</button>` : ''}
           ${b.time_state !== 'Cancelled' && b.time_state !== 'Completed' ? `<button class="btn small" data-need="bookings.edit_own" data-owner="${b.created_by ?? ''}" data-edit="${b.id}">Edit</button>
-          <button class="btn small danger" data-need="bookings.edit_own" data-owner="${b.created_by ?? ''}" data-cancel="${b.id}">Cancel</button>` : ''}
+          ${b.time_state !== 'Rejected' ? `<button class="btn small danger" data-need="bookings.edit_own" data-owner="${b.created_by ?? ''}" data-cancel="${b.id}">Cancel</button>` : ''}` : ''}
         </div></td></tr>`).join('');
       this.el.querySelector('#table').innerHTML = list.length
         ? `<table><thead><tr><th>Meeting</th><th>Room</th><th>Date</th><th>Time</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
@@ -75,6 +76,12 @@
       this.el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = async () => {
         if (!RF.confirm('Cancel this booking?')) return;
         try { await A.cancelBooking(b.dataset.cancel); RF.toast('Booking cancelled'); this.load(); } catch (e) { RF.toast(e.message, 'error'); }
+      });
+      this.el.querySelectorAll('[data-reject]').forEach(b => b.onclick = async () => {
+        const reason = window.prompt('Reason for rejecting (optional, the person who booked will see it):', '');
+        if (reason === null) return;
+        try { await A.rejectBooking(b.dataset.reject, reason); RF.toast('Booking rejected. The room is free again.'); this.load(); }
+        catch (e) { RF.toast(e.message, 'error'); }
       });
       this.el.querySelectorAll('[data-approve]').forEach(b => b.onclick = async () => {
         try { await A.approveBooking(b.dataset.approve); RF.toast('Booking approved'); this.load(); } catch (e) { RF.toast(e.message, 'error'); }

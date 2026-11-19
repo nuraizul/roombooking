@@ -106,6 +106,7 @@ const RULES = [
   ['PUT', /^\/api\/bookings\/(\d+)$/, 'bookings.edit_own'],
   ['PATCH', /^\/api\/bookings\/(\d+)\/cancel$/, 'bookings.edit_own'],
   ['PATCH', /^\/api\/bookings\/\d+\/approve$/, 'bookings.approve'],
+  ['PATCH', /^\/api\/bookings\/\d+\/reject$/, 'bookings.approve'],
   ['GET', /^\/api\/devices$/, 'devices.manage'],
   ['POST', /^\/api\/devices\/register$/, 'devices.manage'],
   ['PATCH', /^\/api\/devices\/\d+\/assign$/, 'devices.manage'],

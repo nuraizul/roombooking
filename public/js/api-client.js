@@ -44,6 +44,7 @@
     updateBooking: (id, b) => request(`/bookings/${id}`, { method: 'PUT', body: b }),
     cancelBooking: id => request(`/bookings/${id}/cancel`, { method: 'PATCH' }),
     approveBooking: id => request(`/bookings/${id}/approve`, { method: 'PATCH' }),
+    rejectBooking: (id, reason) => request(`/bookings/${id}/reject`, { method: 'PATCH', body: { reason } }),
 
     getDevices: () => request('/devices'),
     registerDevice: d => request('/devices/register', { method: 'POST', body: d }),

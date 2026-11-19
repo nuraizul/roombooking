@@ -53,7 +53,7 @@
   // ---------- status from the schedule, computed on the device so it stays right even offline
   function derive(data) {
     const now = stamp(venueNow());
-    const live = (data.schedule || []).filter(b => b.status !== 'Cancelled' && b.end_at > now)
+    const live = (data.schedule || []).filter(b => b.status !== 'Cancelled' && b.status !== 'Rejected' && b.end_at > now)
       .sort((a, b) => a.start_at < b.start_at ? -1 : 1);
     const current = live.find(b => b.start_at <= now) || null;
     const upcoming = live.filter(b => b.start_at > now).slice(0, 1);

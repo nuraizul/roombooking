@@ -6,6 +6,8 @@
     async init(el) {
       this.el = el;
       const s = await A.getSettings();
+      const allRoles = (await A.getRoles()).roles;
+      const approvers = allRoles.filter(r => r.system || r.perms.includes('bookings.approve')).map(r => r.name);
       const sw = (name, label, desc) => `<div class="toggle-row"><div><strong>${label}</strong><p>${desc}</p></div>
         <input type="checkbox" class="switch" name="${name}" ${s[name] ? 'checked' : ''}></div>`;
       const layoutSel = v => `<select name="default_layout"><option value="landscape" ${v === 'landscape' ? 'selected' : ''}>Landscape (wide screen)</option><option value="portrait" ${v === 'portrait' ? 'selected' : ''}>Portrait (tall screen)</option></select>`;
@@ -40,7 +42,15 @@
             </div>
             <div style="margin-top:10px">
               ${sw('allow_same_day', 'Allow same-day bookings', 'When off, users must book from tomorrow onward.')}
-              ${sw('require_approval', 'Require approval', 'New bookings start as Pending until an admin approves them. Pending slots still block the room.')}
+              ${sw('require_approval', 'Enable booking approval', 'When on, bookings made by the roles you choose below wait for approval. Turn off to approve nothing.')}
+              <div class="toggle-row" style="display:block">
+                <div><strong>Roles whose bookings need approval</strong><p>Tick the roles. Bookings from other roles are confirmed straight away.</p></div>
+                <div class="perm-grid" style="margin-top:10px;grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+                  ${allRoles.map(r => `<label class="perm"><input type="checkbox" name="approval_roles[]" value="${RF.esc(r.name)}" ${(s.approval_roles || []).includes(r.name) ? 'checked' : ''}> ${RF.esc(r.name)}</label>`).join('')}
+                </div>
+                <p style="margin-top:10px">Approvers (can approve or reject): <b>${approvers.map(RF.esc).join(', ') || 'none'}</b>.
+                  To change who can approve, edit the role on the Roles page and tick "Approve pending bookings".</p>
+              </div>
             </div>
           </section>
           <div class="form-error" id="serr"></div>
@@ -53,7 +63,8 @@
           system_name: v.system_name, organization: v.organization, time_format: v.time_format,
           default_layout: v.default_layout, default_template: v.default_template,
           display_refresh_seconds: Number(v.display_refresh_seconds), default_duration: Number(v.default_duration),
-          buffer_minutes: Number(v.buffer_minutes), allow_same_day: !!v.allow_same_day, require_approval: !!v.require_approval
+          buffer_minutes: Number(v.buffer_minutes), allow_same_day: !!v.allow_same_day, require_approval: !!v.require_approval,
+          approval_roles: v.approval_roles || []
         };
         try {
           RF.settings = await A.saveSettings(payload);
