@@ -280,3 +280,10 @@ html[data-theme="dark"] .device-card:hover{border-color:#3a4d70}
 .screen.tpl-bold .up-list{background:rgba(0,0,0,.18)}
 .screen.tpl-bold .up-row{border-color:rgba(255,255,255,.2)}
 .screen.tpl-bold .up-row .o{color:#eef6ee}
+
+/* ===== Room facilities on the display ===== */
+.facilities{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.facilities span{font-size:clamp(11px,1.2vw,14px);font-weight:600;padding:6px 12px;border-radius:20px;background:#22324c;color:#c9d5e8;letter-spacing:.2px}
+.screen.tpl-minimal .facilities span{background:#e9eef7;color:#33405a}
+.screen.tpl-bold .facilities span{background:rgba(255,255,255,.2);color:#fff}
+.screen.layout-portrait .facilities{margin-top:10px}

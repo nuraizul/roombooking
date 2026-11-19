@@ -79,7 +79,8 @@
     root.innerHTML = `<div class="${cls}">
       <div class="screen-head">
         <div><div class="code">ROOM ${esc(room.room_no)}${room.floor ? ' · ' + esc(room.floor) : ''}</div>
-          <h1>${esc(room.name)}</h1><div class="loc">${room.capacity} seats · ${esc(settings.system_name)}</div></div>
+          <h1>${esc(room.name)}</h1><div class="loc">${room.capacity} seats · ${esc(settings.system_name)}</div>
+          ${(room.facilities || []).length ? `<div class="facilities">${room.facilities.map(f => `<span>${esc(f)}</span>`).join('')}</div>` : ''}</div>
         <div class="clock" id="clock"></div>
       </div>
       ${state}
