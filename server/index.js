@@ -15,6 +15,12 @@ const auth = require('./auth');
   const bcols = db.prepare('PRAGMA table_info(bookings)').all().map(c => c.name);
   if (!bcols.includes('reject_reason')) db.exec('ALTER TABLE bookings ADD COLUMN reject_reason TEXT');
 }
+// Floor plan: each room's position on its level (units on a 1000 x 600 canvas), plus named levels
+{
+  const rc = db.prepare('PRAGMA table_info(rooms)').all().map(c => c.name);
+  for (const c of ['map_x', 'map_y', 'map_w', 'map_h']) if (!rc.includes(c)) db.exec(`ALTER TABLE rooms ADD COLUMN ${c} INTEGER`);
+  db.exec('CREATE TABLE IF NOT EXISTS floor_levels (name TEXT PRIMARY KEY, sort INTEGER DEFAULT 0)');
+}
 // Statuses that do not hold the room
 const FREE_STATUSES = "('Cancelled','Rejected')";
 const displayOptionsInput = b => {
@@ -573,6 +579,79 @@ app.post('/api/auth/password', (req, res) => {
   const next = String(req.body?.new || '');
   if (next.length < 8) return bad(res, 'New password must be at least 8 characters');
   db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(auth.hashPassword(next), u.id);
+  res.json({ ok: true });
+});
+
+// ---------- floor plan
+const CANVAS_W = 1000, CANVAS_H = 600;
+const levelNames = () => {
+  const named = db.prepare('SELECT name FROM floor_levels ORDER BY sort, name').all().map(r => r.name);
+  const fromRooms = db.prepare("SELECT DISTINCT floor FROM rooms WHERE floor IS NOT NULL AND floor!=''").all().map(r => r.floor);
+  return [...new Set([...named, ...fromRooms])];
+};
+app.get('/api/floorplan', (req, res) => {
+  const rooms = roomsWithStatus().map(r => ({
+    id: r.id, room_no: r.room_no, name: r.name, floor: r.floor || '', capacity: r.capacity,
+    facilities: r.facilities, status: r.status, current: r.current, next: r.next,
+    x: r.map_x, y: r.map_y, w: r.map_w, h: r.map_h
+  }));
+  res.json({ levels: levelNames(), canvas: { w: CANVAS_W, h: CANVAS_H }, rooms });
+});
+app.put('/api/floorplan/rooms', (req, res) => {
+  const list = req.body?.rooms;
+  if (!Array.isArray(list)) return bad(res, 'rooms must be a list');
+  const inRange = (v, min, max) => {
+    if (v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= min && n <= max ? Math.round(n) : NaN;
+  };
+  const updates = [];
+  for (const r of list) {
+    const id = Number(r.id);
+    if (!db.prepare('SELECT 1 FROM rooms WHERE id=?').get(id)) continue;
+    const x = inRange(r.x, 0, CANVAS_W - 40), y = inRange(r.y, 0, CANVAS_H - 40);
+    const w = inRange(r.w, 40, CANVAS_W), h = inRange(r.h, 40, CANVAS_H);
+    if ([x, y, w, h].some(Number.isNaN)) return bad(res, `Room ${id}: position or size is out of range`);
+    const placed = x !== null && y !== null && w !== null && h !== null;
+    const floor = String(r.floor || '').trim().slice(0, 40);
+    updates.push([floor, placed ? x : null, placed ? y : null, placed ? w : null, placed ? h : null, id]);
+  }
+  db.transaction(() => {
+    const up = db.prepare('UPDATE rooms SET floor=?, map_x=?, map_y=?, map_w=?, map_h=? WHERE id=?');
+    for (const u of updates) up.run(...u);
+  })();
+  io.emit('rooms:changed', {});
+  res.json({ ok: true, saved: updates.length });
+});
+app.post('/api/floorplan/levels', (req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 40);
+  if (!name) return bad(res, 'Level name is required');
+  if (levelNames().includes(name)) return bad(res, 'A level with that name already exists', 409);
+  db.prepare('INSERT INTO floor_levels(name,sort) VALUES(?,(SELECT COALESCE(MAX(sort),0)+1 FROM floor_levels))').run(name);
+  io.emit('rooms:changed', {});
+  res.status(201).json({ name });
+});
+app.patch('/api/floorplan/levels/:name', (req, res) => {
+  const from = req.params.name;
+  const to = String(req.body?.name || '').trim().slice(0, 40);
+  if (!to) return bad(res, 'Level name is required');
+  if (!levelNames().includes(from)) return bad(res, 'Level not found', 404);
+  if (to !== from && levelNames().includes(to)) return bad(res, 'A level with that name already exists', 409);
+  db.transaction(() => {
+    db.prepare('UPDATE rooms SET floor=? WHERE floor=?').run(to, from);
+    db.prepare('DELETE FROM floor_levels WHERE name=?').run(from);
+    db.prepare('INSERT OR IGNORE INTO floor_levels(name,sort) VALUES(?,(SELECT COALESCE(MAX(sort),0)+1 FROM floor_levels))').run(to);
+  })();
+  io.emit('rooms:changed', {});
+  res.json({ name: to });
+});
+app.delete('/api/floorplan/levels/:name', (req, res) => {
+  const name = req.params.name;
+  if (!levelNames().includes(name)) return bad(res, 'Level not found', 404);
+  const n = db.prepare("SELECT COUNT(*) AS n FROM rooms WHERE floor=? AND active=1").get(name).n;
+  if (n) return bad(res, `${n} room(s) are on this level. Move them to another level first.`, 409);
+  db.prepare('DELETE FROM floor_levels WHERE name=?').run(name);
+  io.emit('rooms:changed', {});
   res.json({ ok: true });
 });
 

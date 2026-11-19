@@ -94,6 +94,13 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - The **tablet display only shows confirmed meetings**. Pending requests are not shown there until they are approved.
 - A **rejected** booking frees the room. The person who booked can edit it to send it for approval again.
 
+## Floor plan
+- **Floor Plan** page: one tab per level (floor). Drag rooms to where they are in the building, resize them with the side panel, then click **Save layout**.
+- Colours show live status: green = free, orange = in use. It updates when bookings change.
+- **New level**, **Rename** and **Delete level** manage the levels. A level can only be deleted when it has no rooms on it.
+- Rooms that are not placed yet appear under **Not placed yet**. Click **Add here** to put one on the current level.
+- Only roles with **Manage rooms** can edit the plan. Everyone with **View rooms** can see it.
+
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.
 - **Roles page** (Administrators only): create roles and tick what each role can access. The built-in Administrator role always has everything.

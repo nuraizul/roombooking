@@ -6,6 +6,7 @@
   const NAV = [
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-chart-pie', href: 'index.html', perm: 'dashboard.view' },
     { id: 'rooms', label: 'Rooms', icon: 'fa-door-open', href: 'rooms.html', perm: 'rooms.view' },
+    { id: 'floorplan', label: 'Floor Plan', icon: 'fa-map', href: 'floorplan.html', perm: 'rooms.view' },
     { id: 'bookings', label: 'Bookings', icon: 'fa-calendar-check', href: 'bookings.html', perm: 'bookings.view' },
     { id: 'calendar', label: 'Calendar', icon: 'fa-calendar-days', href: 'calendar.html', perm: 'calendar.view' },
     { id: 'users', label: 'Users', icon: 'fa-users', href: 'users.html', perm: 'users.manage' },
@@ -16,6 +17,7 @@
   const META = {
     dashboard: ['Dashboard', 'Live room status and today’s schedule.'],
     rooms: ['Rooms', 'Manage meeting rooms, capacity and facilities.'],
+    floorplan: ['Floor Plan', 'Arrange rooms on each level and see live status.'],
     bookings: ['Bookings', 'Create, edit, approve and cancel reservations.'],
     calendar: ['Calendar', 'Monthly view of all room bookings.'],
     users: ['Users', 'Manage user accounts and roles.'],
