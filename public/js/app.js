@@ -202,7 +202,6 @@
           <div class="top-right">
             <span class="online-pill" id="conn"><i class="dot"></i> <span>Connecting…</span></span>
             <button class="btn small theme-btn" id="theme" title="Switch light / dark mode"><i class="fa-solid fa-moon"></i></button>
-            <button class="btn small" id="mycal" title="My calendar"><i class="fa-solid fa-calendar-plus"></i></button>
             <button class="btn small" id="pwd" title="Change password"><i class="fa-solid fa-key"></i></button>
             <span class="who">${esc(RF.me.name)} <small>${esc(RF.me.role)}</small></span>
             <button class="btn small" id="logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
@@ -224,44 +223,6 @@
   }
 
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
-
-  // Link to your own calendar (Outlook, Google, Apple). Read-only; only you see these events.
-  RF.openMyCalendar = async () => {
-    const st = await A.getMyCalendar();
-    const when = st.last_sync ? new Date(st.last_sync).toLocaleString('en-GB') : 'never';
-    const m = RF.modal({
-      title: 'My calendar',
-      width: 560,
-      body: `<p class="muted" style="font-size:12px;line-height:1.6">Paste your calendar's ICS link. Your meetings then appear in the Calendar page, marked as “mine”. Only you can see them.</p>
-        <div class="field full"><label>ICS link</label><input id="cal-url" placeholder="https://outlook.live.com/.../calendar.ics" value="${RF.esc(st.url || '')}"></div>
-        <p class="muted" style="font-size:12px;margin-top:8px"><b>Where to find it</b><br>
-          Outlook (web): Settings → Calendar → Shared calendars → Publish a calendar → copy the ICS link.<br>
-          Google Calendar: Settings → your calendar → Integrate calendar → Secret address in iCal format.</p>
-        <p class="muted" style="font-size:12px;margin-top:8px">Last updated: ${when}${st.last_error ? `<br><span style="color:var(--red)">Problem: ${RF.esc(st.last_error)}</span>` : ''}</p>
-        <div class="form-error" id="cal-err"></div>
-        <div class="modal-actions">
-          ${st.connected ? '<button class="btn danger" id="cal-off">Disconnect</button><button class="btn" id="cal-sync">Sync now</button>' : ''}
-          <button class="btn" data-close>Close</button>
-          <button class="btn primary" id="cal-save">Save link</button>
-        </div>`,
-      onMount: (root, close) => {
-        root.querySelector('#cal-save').onclick = async () => {
-          const url = root.querySelector('#cal-url').value.trim();
-          root.querySelector('#cal-err').textContent = '';
-          try { await A.connectMyCalendar(url); RF.toast('Calendar connected'); close(); RF.reload && RF.reload(); }
-          catch (e) { root.querySelector('#cal-err').textContent = e.message; }
-        };
-        root.querySelector('#cal-sync')?.addEventListener('click', async () => {
-          try { await A.syncMyCalendar(); RF.toast('Calendar synced'); close(); RF.reload && RF.reload(); }
-          catch (e) { root.querySelector('#cal-err').textContent = e.message; }
-        });
-        root.querySelector('#cal-off')?.addEventListener('click', async () => {
-          if (!RF.confirm('Disconnect your calendar? Its events will be removed from RoomFlow.')) return;
-          await A.disconnectMyCalendar(); RF.toast('Calendar disconnected'); close(); RF.reload && RF.reload();
-        });
-      }
-    });
-  };
 
   function changePassword() {
     RF.modal({
@@ -295,7 +256,6 @@
       location.href = 'login.html';
     };
     document.getElementById('pwd').onclick = changePassword;
-    document.getElementById('mycal').onclick = () => RF.openMyCalendar();
     const themeBtn = document.getElementById('theme');
     const paintTheme = () => { themeBtn.innerHTML = `<i class="fa-solid fa-${document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon'}"></i>`; };
     paintTheme();

@@ -12,7 +12,6 @@
           <div class="panel-head">
             <div><h2 id="mlabel"></h2><p>Click a day to see or add bookings</p></div>
             <div class="actions">
-              <label class="check" style="margin-right:6px"><input type="checkbox" id="mine"> My calendar</label>
               <select id="room"><option value="">All rooms</option></select>
               <button class="btn" id="prev"><i class="fa-solid fa-chevron-left"></i></button>
               <button class="btn" id="today">Today</button>
@@ -25,7 +24,6 @@
       const rooms = await A.getRooms();
       el.querySelector('#room').insertAdjacentHTML('beforeend', rooms.map(r => `<option value="${r.id}">${RF.esc(r.room_no)} · ${RF.esc(r.name)}</option>`).join(''));
       el.querySelector('#room').onchange = () => this.load();
-      el.querySelector('#mine').onchange = () => this.load();
       el.querySelector('#prev').onclick = () => this.move(-1);
       el.querySelector('#next').onclick = () => this.move(1);
       el.querySelector('#today').onclick = () => { this.cursor = new Date(); this.cursor.setDate(1); this.load(); };
@@ -44,19 +42,14 @@
       const room = this.el.querySelector('#room').value;
       this.el.querySelector('#mlabel').textContent = `${MONTHS[this.cursor.getMonth()]} ${this.cursor.getFullYear()}`;
       this.bookings = (await A.getBookings({ from, to, room_id: room })).filter(b => b.status !== 'Cancelled' && b.status !== 'Rejected');
-      this.mine = [];
-      if (this.el.querySelector('#mine').checked) {
-        const r = await A.getMyCalendarEvents({ from, to });
-        this.mine = (r.events || []).map(e => ({ ...e, mine: true, room_no: '', room_name: e.location || '', organizer: 'My calendar', status: 'Confirmed', time_state: 'Upcoming' }));
-      }
       const byDay = {};
-      [...this.bookings, ...this.mine].forEach(b => (byDay[b.start_at.slice(0, 10)] = byDay[b.start_at.slice(0, 10)] || []).push(b));
+      this.bookings.forEach(b => (byDay[b.start_at.slice(0, 10)] = byDay[b.start_at.slice(0, 10)] || []).push(b));
       const today = RF.today();
       const head = ['MON','TUE','WED','THU','FRI','SAT','SUN'].map(d => `<div class="cal-head">${d}</div>`).join('');
       const cells = days.map(d => {
         const key = RF.dateStr(d), list = byDay[key] || [];
         const other = d.getMonth() !== this.cursor.getMonth();
-        const ev = list.slice(0, 3).map((b, i) => `<span class="cal-event ${b.mine ? 'mine' : i % 3 === 1 ? 'green' : i % 3 === 2 ? 'orange' : ''}"><span class="t">${RF.fmtTime(b.start_at)}</span>${RF.esc(b.title)}</span>`).join('');
+        const ev = list.slice(0, 3).map((b, i) => `<span class="cal-event ${i % 3 === 1 ? 'green' : i % 3 === 2 ? 'orange' : ''}"><span class="t">${RF.fmtTime(b.start_at)}</span>${RF.esc(b.title)}</span>`).join('');
         const more = list.length > 3 ? `<div class="cal-more">+${list.length - 3} more</div>` : '';
         return `<div class="cal-cell day-cell ${other ? 'other' : ''} ${key === today ? 'today' : ''}" data-day="${key}"><em>${d.getDate()}</em>${ev}${more}</div>`;
       }).join('');
@@ -64,11 +57,11 @@
       this.el.querySelectorAll('[data-day]').forEach(c => c.onclick = () => this.openDay(c.dataset.day));
     },
     openDay(day) {
-      const list = [...this.bookings, ...this.mine].filter(b => b.start_at.startsWith(day)).sort((a, b) => a.start_at < b.start_at ? -1 : 1);
+      const list = this.bookings.filter(b => b.start_at.startsWith(day));
       const rows = list.length ? list.map(b => `<div class="list-row">
-          <div class="grow"><strong>${RF.esc(b.title)}</strong><p>${RF.timeRange(b)}${b.mine ? ' · from your calendar' : ` · ${RF.esc(b.room_no)} ${RF.esc(b.room_name)} · ${RF.esc(b.organizer)}`}</p></div>
-          ${b.mine ? '<span class="pill purple">My calendar</span>' : RF.statePill(b)}
-          ${b.mine ? '' : `<button class="btn small" data-need="bookings.edit_own" data-owner="${b.created_by ?? ''}" data-edit="${b.id}">Edit</button>`}</div>`).join('')
+          <div class="grow"><strong>${RF.esc(b.title)}</strong><p>${RF.timeRange(b)} · ${RF.esc(b.room_no)} ${RF.esc(b.room_name)} · ${RF.esc(b.organizer)}</p></div>
+          ${RF.statePill(b)}
+          <button class="btn small" data-need="bookings.edit_own" data-owner="${b.created_by ?? ''}" data-edit="${b.id}">Edit</button></div>`).join('')
         : '<div class="empty">No bookings on this day.</div>';
       const d = RF.parse(day + ' 00:00:00');
       const m = RF.modal({

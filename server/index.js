@@ -2,8 +2,6 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const crypto = require('crypto');
-const { parseIcs } = require('./ics');
 const db = require('./db');
 const auth = require('./auth');
 
@@ -23,12 +21,6 @@ const auth = require('./auth');
   for (const c of ['map_x', 'map_y', 'map_w', 'map_h']) if (!rc.includes(c)) db.exec(`ALTER TABLE rooms ADD COLUMN ${c} INTEGER`);
   db.exec('CREATE TABLE IF NOT EXISTS floor_levels (name TEXT PRIMARY KEY, sort INTEGER DEFAULT 0)');
 }
-// Integrations (Microsoft Teams). Kept out of /api/settings because they hold secrets.
-db.exec('CREATE TABLE IF NOT EXISTS integrations (key TEXT PRIMARY KEY, value TEXT)');
-const intGet = k => db.prepare('SELECT value FROM integrations WHERE key=?').get(k)?.value ?? null;
-const intSet = (k, v) => db.prepare('INSERT INTO integrations(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, v);
-const teamsOn = () => intGet('teams_enabled') === '1';
-const sha256 = v => crypto.createHash('sha256').update(String(v)).digest('hex');
 // Statuses that do not hold the room
 const FREE_STATUSES = "('Cancelled','Rejected')";
 const displayOptionsInput = b => {
@@ -296,7 +288,6 @@ app.post('/api/bookings', (req, res) => {
     .run(room_id, title, organizer, start_at, end_at, status, req.user.id);
   const booking = getBooking(info.lastInsertRowid);
   broadcastBooking('created', booking);
-  if (booking.status === 'Pending') notifyTeamsApprovers(booking);
   res.status(201).json(booking);
 });
 app.put('/api/bookings/:id', (req, res) => {
@@ -663,197 +654,6 @@ app.delete('/api/floorplan/levels/:name', (req, res) => {
   io.emit('rooms:changed', {});
   res.json({ ok: true });
 });
-
-// ---------- personal calendar (read-only link to your Outlook / Google / Apple calendar)
-db.exec(`CREATE TABLE IF NOT EXISTS user_calendars (
-  user_id INTEGER PRIMARY KEY, url TEXT NOT NULL, last_sync INTEGER, last_error TEXT
-);`);
-db.exec(`CREATE TABLE IF NOT EXISTS user_calendar_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, uid TEXT, title TEXT,
-  location TEXT, start_at TEXT NOT NULL, end_at TEXT NOT NULL
-);`);
-db.exec('CREATE INDEX IF NOT EXISTS idx_user_cal ON user_calendar_events(user_id, start_at)');
-const CAL_SYNC_MINUTES = 15;
-
-// Only public web addresses. Blocks this server's own network (SSRF).
-function checkCalendarUrl(raw) {
-  let u = String(raw || '').trim();
-  if (/^webcal:\/\//i.test(u)) u = 'https://' + u.slice(9);
-  let parsed;
-  try { parsed = new URL(u); } catch (_) { return { error: 'That is not a valid link' }; }
-  if (parsed.protocol !== 'https:') return { error: 'The link must start with https:// or webcal://' };
-  const h = parsed.hostname.toLowerCase();
-  if (h === 'localhost' || h.endsWith('.local') || /^(127\.|10\.|192\.168\.|169\.254\.|0\.0\.0\.0|::1|172\.(1[6-9]|2\d|3[01])\.)/.test(h))
-    return { error: 'That address is not allowed' };
-  return { value: parsed.toString() };
-}
-function applyCalendarEvents(userId, events) {
-  const now = Date.now(), from = addDays(nowStr().slice(0, 10), -60), to = addDays(nowStr().slice(0, 10), 365);
-  db.transaction(() => {
-    db.prepare('DELETE FROM user_calendar_events WHERE user_id=?').run(userId);
-    const ins = db.prepare('INSERT INTO user_calendar_events(user_id,uid,title,location,start_at,end_at) VALUES(?,?,?,?,?,?)');
-    for (const e of events) if (e.start_at.slice(0, 10) >= from && e.start_at.slice(0, 10) <= to) ins.run(userId, e.uid, e.title, e.location, e.start_at, e.end_at);
-  })();
-  db.prepare('UPDATE user_calendars SET last_sync=?, last_error=NULL WHERE user_id=?').run(now, userId);
-}
-async function syncUserCalendar(userId) {
-  const row = db.prepare('SELECT * FROM user_calendars WHERE user_id=?').get(userId);
-  if (!row) return null;
-  try {
-    const res = await fetch(row.url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RoomFlow' } });
-    if (!res.ok) throw new Error(`The calendar link answered with ${res.status}`);
-    const text = await res.text();
-    if (text.length > 3000000) throw new Error('The calendar file is too large');
-    if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error('This link does not return a calendar (.ics) file');
-    applyCalendarEvents(userId, parseIcs(text, APP_TZ));
-  } catch (e) {
-    db.prepare('UPDATE user_calendars SET last_sync=?, last_error=? WHERE user_id=?').run(Date.now(), String(e.message).slice(0, 200), userId);
-  }
-  return db.prepare('SELECT url, last_sync, last_error FROM user_calendars WHERE user_id=?').get(userId);
-}
-const calStatus = userId => {
-  const row = db.prepare('SELECT url, last_sync, last_error FROM user_calendars WHERE user_id=?').get(userId);
-  return row ? { connected: true, url: row.url, last_sync: row.last_sync, last_error: row.last_error }
-    : { connected: false };
-};
-app.get('/api/me/calendar', (req, res) => res.json(calStatus(req.user.id)));
-app.put('/api/me/calendar', async (req, res) => {
-  const v = checkCalendarUrl(req.body?.url);
-  if (v.error) return bad(res, v.error);
-  db.prepare('INSERT INTO user_calendars(user_id,url,last_sync,last_error) VALUES(?,?,NULL,NULL) ON CONFLICT(user_id) DO UPDATE SET url=excluded.url, last_sync=NULL, last_error=NULL')
-    .run(req.user.id, v.value);
-  await syncUserCalendar(req.user.id);
-  res.json(calStatus(req.user.id));
-});
-app.post('/api/me/calendar/sync', async (req, res) => {
-  if (!db.prepare('SELECT 1 FROM user_calendars WHERE user_id=?').get(req.user.id)) return bad(res, 'Connect a calendar first', 404);
-  await syncUserCalendar(req.user.id);
-  res.json(calStatus(req.user.id));
-});
-app.delete('/api/me/calendar', (req, res) => {
-  db.transaction(() => {
-    db.prepare('DELETE FROM user_calendar_events WHERE user_id=?').run(req.user.id);
-    db.prepare('DELETE FROM user_calendars WHERE user_id=?').run(req.user.id);
-  })();
-  res.json({ ok: true });
-});
-app.get('/api/me/calendar/events', async (req, res) => {
-  const row = db.prepare('SELECT last_sync FROM user_calendars WHERE user_id=?').get(req.user.id);
-  if (!row) return res.json({ connected: false, events: [] });
-  // refresh automatically when the copy is older than 15 minutes
-  if (!row.last_sync || Date.now() - row.last_sync > CAL_SYNC_MINUTES * 60000) await syncUserCalendar(req.user.id);
-  const { from, to } = req.query;
-  const where = ['user_id=?'], args = [req.user.id];
-  if (isDate(from)) { where.push('start_at>=?'); args.push(from + ' 00:00:00'); }
-  if (isDate(to)) { where.push('start_at<?'); args.push(addDays(to, 1) + ' 00:00:00'); }
-  const events = db.prepare(`SELECT id,title,location,start_at,end_at FROM user_calendar_events WHERE ${where.join(' AND ')} ORDER BY start_at LIMIT 2000`).all(...args);
-  res.json({ connected: true, status: calStatus(req.user.id), events });
-});
-
-// ---------- Microsoft Teams integration
-// Admin: read / change the toggle, webhook, and generate the API key (shown once)
-app.get('/api/integrations/teams', (req, res) => res.json({
-  enabled: teamsOn(),
-  webhook_url: intGet('teams_webhook_url') || '',
-  key_set: !!intGet('teams_key_hash'),
-  endpoint: '/api/integrations/teams/booking'
-}));
-app.put('/api/integrations/teams', (req, res) => {
-  const b = req.body || {};
-  if (b.enabled !== undefined) intSet('teams_enabled', b.enabled === true || b.enabled === 'true' ? '1' : '0');
-  if (b.webhook_url !== undefined) {
-    const url = String(b.webhook_url || '').trim();
-    if (url && !/^https:\/\//i.test(url)) return bad(res, 'Webhook address must start with https://');
-    intSet('teams_webhook_url', url);
-  }
-  res.json({ ok: true });
-});
-app.post('/api/integrations/teams/key', (req, res) => {
-  const key = crypto.randomBytes(24).toString('hex');
-  intSet('teams_key_hash', sha256(key));
-  res.status(201).json({ key, note: 'Copy this key now. It will not be shown again.' });
-});
-
-// Teams side: create a booking with only the mandatory details
-// Required: room (room number), title, organizer (name or email), start, end
-app.post('/api/integrations/teams/booking', async (req, res) => {
-  if (!teamsOn()) return bad(res, 'Microsoft Teams integration is turned off in Settings', 403);
-  const key = String(req.headers['x-roomflow-key'] || '');
-  const stored = intGet('teams_key_hash');
-  if (!stored || !key || sha256(key) !== stored) return bad(res, 'Invalid or missing API key', 401);
-
-  const b = req.body || {};
-  const room = String(b.room ?? '').trim();
-  const title = String(b.title ?? '').trim();
-  const organizer = String(b.organizer ?? '').trim();
-  const start = toVenueTime(b.start), end = toVenueTime(b.end);
-  const missing = [!room && 'room', !title && 'title', !organizer && 'organizer', !start && 'start', !end && 'end'].filter(Boolean);
-  if (missing.length) return bad(res, `Missing required field(s): ${missing.join(', ')}`);
-
-  const roomRow = db.prepare('SELECT id FROM rooms WHERE room_no=? AND active=1').get(room);
-  if (!roomRow) return bad(res, `Room "${room}" not found`, 404);
-
-  // Match the organizer to a RoomFlow user (by email, else by name) so their role decides approval
-  const who = db.prepare('SELECT id, name, role FROM users WHERE active=1 AND (email=? OR name=?)')
-    .get(organizer.toLowerCase(), organizer) || null;
-
-  const v = validateBooking({ room_id: roomRow.id, title, organizer, start_at: start, end_at: end });
-  if (v.error) return bad(res, v.error, v.conflict ? 409 : 400);
-  const s = getSettings();
-  const status = bookingStatusFor(who ? who.role : '', s);
-  const info = db.prepare('INSERT INTO bookings(room_id,title,organizer,start_at,end_at,status,created_by) VALUES(?,?,?,?,?,?,?)')
-    .run(v.value.room_id, title, who ? who.name : organizer, v.value.start_at, v.value.end_at, status, who ? who.id : null);
-  const booking = getBooking(info.lastInsertRowid);
-  broadcastBooking('created', booking);
-  if (status === 'Pending') notifyTeamsApprovers(booking);
-  res.status(201).json({
-    id: booking.id, status: booking.status, room: booking.room_no, title: booking.title,
-    start: booking.start_at, end: booking.end_at,
-    message: status === 'Pending' ? 'Booking sent for approval' : 'Booking confirmed'
-  });
-});
-
-// Accept "2026-11-20T10:00", "2026-11-20 10:00" or ISO with an offset (e.g. +08:00 or Z) and convert to venue time
-function toVenueTime(v) {
-  if (typeof v !== 'string') return null;
-  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(v.trim())) {
-    const d = new Date(v.trim());
-    if (isNaN(d)) return null;
-    return new Intl.DateTimeFormat('sv-SE', { timeZone: APP_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(d).replace('T', ' ');
-  }
-  return normDateTime(v);
-}
-
-// Posts a card to the Teams channel (Power Automate Workflows webhook) so approvers see new requests
-async function notifyTeamsApprovers(booking) {
-  const url = intGet('teams_webhook_url');
-  if (!teamsOn() || !url) return;
-  const card = {
-    type: 'message',
-    attachments: [{
-      contentType: 'application/vnd.microsoft.card.adaptive',
-      content: {
-        type: 'AdaptiveCard', version: '1.4',
-        body: [
-          { type: 'TextBlock', weight: 'Bolder', size: 'Medium', text: 'Room booking waiting for approval' },
-          { type: 'FactSet', facts: [
-            { title: 'Room', value: `${booking.room_no} · ${booking.room_name}` },
-            { title: 'Meeting', value: booking.title },
-            { title: 'Organizer', value: booking.organizer },
-            { title: 'When', value: `${booking.start_at.slice(0, 10)} ${booking.start_at.slice(11, 16)} – ${booking.end_at.slice(11, 16)}` }
-          ] },
-          { type: 'TextBlock', wrap: true, text: 'Approve or reject it in RoomFlow › Bookings.' }
-        ]
-      }
-    }]
-  };
-  try {
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(card), signal: AbortSignal.timeout(8000) });
-  } catch (e) {
-    console.error('Teams notification failed:', e.message);
-  }
-}
 
 // ---------- unknown api + errors
 app.use('/api', (req, res) => bad(res, 'Not found', 404));
