@@ -114,6 +114,9 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - **Screen resolution**: pick a common size (for example 1280 × 800 for a 10-inch tablet) or type any width and height from 320 to 3840 pixels.
 - Drag an element to move it, drag the blue corner to resize, and edit its details on the right.
 - **Video**: upload an MP4, WebM or OGG file from your computer (up to 60 MB), or paste a YouTube link.
+  - Uploaded videos and photos are saved on the tablet, so they keep playing when Wi-Fi drops. Open the display once while online so the file is saved.
+  - YouTube videos need the internet. When there is no Wi-Fi, the box shows "Wi-Fi disconnected" instead of a web error.
+  - Turn off **Repeat when finished** to play a video once and stop on its last frame.
 - **Show this element**: always, only when the room is available, or only when it is in use. This makes screens that change colour with the status.
 - The preview on the designer uses the same drawing code as the tablet, so what you see is what the tablet shows.
 - Choose a design for a tablet in **Room Displays** (or as the default in **Settings**). Custom designs are saved on the tablet, so they keep working when the network drops.

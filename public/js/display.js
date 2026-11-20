@@ -61,18 +61,29 @@
   }
 
   // Custom design: the designer decides what is shown, using the same status data
+  let designSig = null, designHost = null;
+  // Redraw only when something on screen changes. Re-drawing every refresh would restart videos.
   function renderDesign(data) {
     const { current, upcoming, live } = derive(data);
+    const sig = JSON.stringify([data.design.id, data.design.updated_at, data.design.width, data.design.height, online,
+      current && current.id, upcoming[0] && upcoming[0].id, live.map(b => b.id).join(','),
+      data.room && [data.room.name, data.room.room_no, data.room.facilities], innerWidth, innerHeight]);
+    if (sig === designSig && designHost && designHost.isConnected) return;
+    designSig = sig;
+    if (designHost && designHost._timer) clearInterval(designHost._timer);
     root.innerHTML = '<div class="dz-host"></div>';
-    RFDesign.mount(root.querySelector('.dz-host'), data.design, {
+    designHost = root.querySelector('.dz-host');
+    RFDesign.mount(designHost, data.design, {
       room: data.room, current, next: upcoming[0] || null, live,
-      settings, now: venueNow(), offsetMs
+      settings, now: venueNow(), offsetMs, offline: !online
     });
+    RFMedia.prepare(designHost);
   }
 
   function render(data) {
     const { room, device } = data;
     if (data.design) return renderDesign(data);
+    designSig = null;
     if (!room) {
       return message(esc(device?.device_name || code), 'This display is not assigned to a room yet.<br>Assign it on the Room Displays page of the admin console.');
     }

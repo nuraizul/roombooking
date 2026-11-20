@@ -350,3 +350,14 @@ html[data-theme="dark"] .copy-row input{background:var(--surface2)}
 html[data-theme="dark"] .dz-props,html[data-theme="dark"] .dz-card{background:var(--surface)}
 html[data-theme="dark"] .dz-props input,html[data-theme="dark"] .dz-props select,html[data-theme="dark"] .dz-props textarea{background:var(--surface2);color:var(--text)}
 @media(max-width:1100px){.dz-editor{grid-template-columns:1fr}}
+/* designer header: every setting on one row, labels above */
+.dz-head{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:flex-end;margin-bottom:16px}
+.dz-f{display:flex;flex-direction:column;gap:5px}
+.dz-f label{font-size:11px;color:var(--muted)}
+.dz-f.dz-name{flex:1 1 240px}
+.dz-f input,.dz-f select{height:34px;border:1px solid var(--border);border-radius:8px;padding:0 10px;background:#fff;color:var(--text);font-size:13px}
+.dz-f input[type=color].dz-color{width:64px;padding:3px}
+.dz-f.dz-name input{width:100%;box-sizing:border-box}
+.dz-res{display:flex;gap:6px;align-items:center}
+.dz-res input[type=number]{width:84px}
+html[data-theme="dark"] .dz-f input,html[data-theme="dark"] .dz-f select{background:var(--surface2);color:var(--text)}

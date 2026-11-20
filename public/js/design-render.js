@@ -14,6 +14,8 @@
     return { time: t, date: d, format };
   }
 
+  const offlineBox = () => `<div class="dz-placeholder">Wi-Fi disconnected</div>`;
+
   function elementHtml(e, ctx, editing) {
     const p = e.props || {};
     const box = `left:${e.x}%;top:${e.y}%;width:${e.w}%;height:${e.h}%`;
@@ -24,13 +26,26 @@
         return wrap(`<div style="width:100%;font-size:${size}px;color:${color};font-weight:${p.bold ? 700 : 400};text-align:${p.align || 'left'};white-space:pre-wrap;line-height:1.15">${esc(p.content || '')}</div>`, `display:flex;align-items:${p.valign || 'flex-start'};`);
       case 'image': {
         const src = p.url || '';
-        return wrap(src ? `<img src="${esc(src)}" alt="" style="width:100%;height:100%;object-fit:${p.fit || 'cover'};border-radius:${p.radius || 0}px;pointer-events:none">`
-          : `<div class="dz-placeholder">Photo: add an image in properties</div>`);
+        if (!src) return wrap(`<div class="dz-placeholder">Photo: add an image in properties</div>`);
+        const style = `width:100%;height:100%;object-fit:${p.fit || 'cover'};border-radius:${p.radius || 0}px;pointer-events:none`;
+        if (src.startsWith('/uploads/')) return wrap(`<img data-media="${esc(src)}" alt="" style="${style}">`);
+        if (src.startsWith('data:')) return wrap(`<img src="${esc(src)}" alt="" style="${style}">`);
+        if (ctx.offline) return wrap(offlineBox());
+        return wrap(`<img src="${esc(src)}" alt="" style="${style}" onerror="this.outerHTML='<div class=&quot;dz-placeholder&quot;>Wi-Fi disconnected</div>'">`);
       }
       case 'video': {
         const yt = youtubeId(p.url);
-        if (yt) return wrap(`<iframe src="https://www.youtube.com/embed/${yt}?autoplay=1&mute=1&loop=1&playlist=${yt}&controls=0&playsinline=1" allow="autoplay; encrypted-media" style="width:100%;height:100%;border:0;pointer-events:none"></iframe>`);
-        if (/^(https?:\/\/.+|\/uploads\/[\w.-]+)\.(mp4|webm|ogg)(\?|$)/i.test(p.url || '')) return wrap(`<video src="${esc(p.url)}" muted autoplay loop playsinline style="width:100%;height:100%;object-fit:${p.fit || 'cover'};pointer-events:none"></video>`);
+        const loop = p.loop === false ? '' : 'loop';
+        if (yt) {
+          if (ctx.offline) return wrap(offlineBox());
+          return wrap(`<iframe src="https://www.youtube.com/embed/${yt}?autoplay=1&mute=1${p.loop === false ? '' : `&loop=1&playlist=${yt}`}&controls=0&playsinline=1" allow="autoplay; encrypted-media" style="width:100%;height:100%;border:0;pointer-events:none"></iframe>`);
+        }
+        const url = p.url || '';
+        if (url.startsWith('/uploads/')) return wrap(`<video data-media="${esc(url)}" muted autoplay ${loop} playsinline style="width:100%;height:100%;object-fit:${p.fit || 'cover'};pointer-events:none"></video>`);
+        if (/^https?:\/\/.+\.(mp4|webm|ogg)(\?|$)/i.test(url)) {
+          if (ctx.offline) return wrap(offlineBox());
+          return wrap(`<video src="${esc(url)}" muted autoplay ${loop} playsinline style="width:100%;height:100%;object-fit:${p.fit || 'cover'};pointer-events:none"></video>`);
+        }
         return wrap(`<div class="dz-placeholder">Video: upload an MP4 file or paste a YouTube link in properties</div>`);
       }
       case 'clock': {
@@ -87,7 +102,7 @@
     const s = Math.min(cw / base.w, ch / base.h);
     const ox = (cw - base.w * s) / 2, oy = (ch - base.h * s) / 2;
     const state = data.current ? 'busy' : 'free';
-    const ctx = { room: data.room, current: data.current, next: data.next, live: data.live || [], fmt: data.settings?.time_format || '12', now: data.now || new Date(), selected: opts.selected };
+    const ctx = { room: data.room, current: data.current, next: data.next, live: data.live || [], fmt: data.settings?.time_format || '12', now: data.now || new Date(), selected: opts.selected, offline: !!data.offline };
     const visible = (design.elements || []).filter(e => e.show === 'always' || e.show === undefined || e.show === state);
     container.innerHTML = `<div class="dz-stage" style="width:${base.w}px;height:${base.h}px;background:${design.bg || '#0e1522'};transform:translate(${ox}px,${oy}px) scale(${s});">
       ${visible.map(e => elementHtml(e, ctx, !!opts.editable)).join('')}

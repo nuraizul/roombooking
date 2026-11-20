@@ -4,7 +4,7 @@
   const WIDGETS = {
     text:       { label: 'Text', icon: 'fa-font', w: 40, h: 12, props: { content: 'Welcome', size: 96, color: '#ffffff', bold: true, align: 'left', valign: 'flex-start' } },
     image:      { label: 'Photo', icon: 'fa-image', w: 30, h: 40, props: { url: '', fit: 'cover', radius: 16 } },
-    video:      { label: 'Video', icon: 'fa-film', w: 40, h: 40, props: { url: '', fit: 'cover' } },
+    video:      { label: 'Video', icon: 'fa-film', w: 40, h: 40, props: { url: '', fit: 'cover', loop: true } },
     clock:      { label: 'Clock & date', icon: 'fa-clock', w: 30, h: 18, props: { format: 'both', size: 110, color: '#ffffff' } },
     room_name:  { label: 'Room name', icon: 'fa-door-open', w: 50, h: 14, props: { size: 96, color: '#ffffff', showNumber: true } },
     status:     { label: 'Status (Available / In use)', icon: 'fa-circle-check', w: 40, h: 20, props: { freeText: 'AVAILABLE', busyText: 'IN USE', freeColor: '#2f9e6b', busyColor: '#e0892a', size: 120 } },
@@ -18,7 +18,7 @@
   const SCHEMA = {
     text: [['content', 'Text', 'textarea'], ['size', 'Font size', 'number'], ['color', 'Colour', 'color'], ['bold', 'Bold', 'bool'], ['align', 'Align', 'select:left,center,right'], ['valign', 'Vertical', 'select:flex-start,center,flex-end']],
     image: [['url', 'Photo', 'image'], ['fit', 'Fit', 'select:cover,contain'], ['radius', 'Corner radius', 'number']],
-    video: [['url', 'Video', 'video'], ['fit', 'Fit', 'select:cover,contain']],
+    video: [['url', 'Video', 'video'], ['loop', 'Repeat when finished', 'bool'], ['fit', 'Fit', 'select:cover,contain']],
     clock: [['format', 'Show', 'select:both,time,date'], ['size', 'Font size', 'number'], ['color', 'Colour', 'color']],
     room_name: [['showNumber', 'Show room number', 'bool'], ['size', 'Font size', 'number'], ['color', 'Colour', 'color']],
     status: [['freeText', 'Text when free', 'text'], ['busyText', 'Text when in use', 'text'], ['freeColor', 'Colour when free', 'color'], ['busyColor', 'Colour when in use', 'color'], ['size', 'Font size', 'number']],
@@ -91,15 +91,14 @@
         <section class="panel">
           <div class="panel-head"><div><h2>${id ? 'Edit design' : 'New design'}</h2><p>Drag elements onto the screen. Pick when each one shows in its properties.</p></div>
             <div class="actions"><button class="btn" id="back"><i class="fa-solid fa-arrow-left"></i> Back</button><button class="btn primary" id="save"><i class="fa-solid fa-floppy-disk"></i> Save design</button></div></div>
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px">
-            <div style="min-width:220px;flex:1"><label class="muted" style="font-size:11px">Design name</label><input id="dname" value="${RF.esc(this.d.name)}" maxlength="60" style="width:100%;height:34px;border:1px solid var(--border);border-radius:8px;padding:0 10px"></div>
-            <div><label class="muted" style="font-size:11px">Screen resolution</label>
-              <div style="display:flex;gap:6px;align-items:center"><select id="dres" style="height:34px;border:1px solid var(--border);border-radius:8px;padding:0 8px;max-width:240px">${PRESETS.map(([v, l]) => `<option value="${v}" ${v === this.resKey() ? 'selected' : ''}>${l}</option>`).join('')}</select>
-              <input id="dw" type="number" min="320" max="3840" value="${this.d.width}" style="width:84px;height:34px;border:1px solid var(--border);border-radius:8px;padding:0 8px" title="Width (px)">
-              <span class="muted">×</span>
-              <input id="dh" type="number" min="320" max="3840" value="${this.d.height}" style="width:84px;height:34px;border:1px solid var(--border);border-radius:8px;padding:0 8px" title="Height (px)"></div></div>
-            <div><label class="muted" style="font-size:11px">Background</label><input type="color" id="dbg" value="${this.d.bg}" style="width:60px;height:34px;border:1px solid var(--border);border-radius:8px;padding:2px"></div>
-            <div><label class="muted" style="font-size:11px">Preview</label><select id="dpreview" style="height:34px;border:1px solid var(--border);border-radius:8px;padding:0 8px"><option value="free">Room available</option><option value="busy">Room in use</option></select></div>
+          <div class="dz-head">
+            <div class="dz-f dz-name"><label>Design name</label><input id="dname" value="${RF.esc(this.d.name)}" maxlength="60"></div>
+            <div class="dz-f"><label>Screen resolution</label>
+              <div class="dz-res"><select id="dres">${PRESETS.map(([v, l]) => `<option value="${v}" ${v === this.resKey() ? 'selected' : ''}>${l}</option>`).join('')}</select>
+              <input id="dw" type="number" min="320" max="3840" value="${this.d.width}" title="Width (px)"><span class="muted">×</span>
+              <input id="dh" type="number" min="320" max="3840" value="${this.d.height}" title="Height (px)"></div></div>
+            <div class="dz-f"><label>Background</label><input type="color" id="dbg" value="${this.d.bg}" class="dz-color"></div>
+            <div class="dz-f"><label>Preview</label><select id="dpreview"><option value="free">Room available</option><option value="busy">Room in use</option></select></div>
           </div>
           <div class="dz-editor">
             <div class="dz-palette">${Object.entries(WIDGETS).map(([k, w]) => `<button class="btn" data-add="${k}"><i class="fa-solid ${w.icon}"></i> ${w.label}</button>`).join('')}</div>
