@@ -15,7 +15,8 @@ self.addEventListener('activate', event => {
 });
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-  if (event.request.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/')) return;
+  // API and uploaded media are never cached here (videos are large; the display keeps its own schedule)
+  if (event.request.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/')) return;
   // network first (always fresh when online), cached copy when offline
   event.respondWith(
     fetch(event.request).then(res => {

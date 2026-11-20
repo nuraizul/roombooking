@@ -111,11 +111,14 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 ## Display Designer (custom display screens)
 - **Display Designer** (admins, or roles with "Design display screens"): create a screen, then add elements from the left:
   text, photo, video (YouTube or MP4 link), clock and date, room name, status (Available / In use), current meeting, next meeting, today's schedule, facilities, and box.
+- **Screen resolution**: pick a common size (for example 1280 × 800 for a 10-inch tablet) or type any width and height from 320 to 3840 pixels.
 - Drag an element to move it, drag the blue corner to resize, and edit its details on the right.
+- **Video**: upload an MP4, WebM or OGG file from your computer (up to 60 MB), or paste a YouTube link.
 - **Show this element**: always, only when the room is available, or only when it is in use. This makes screens that change colour with the status.
 - The preview on the designer uses the same drawing code as the tablet, so what you see is what the tablet shows.
 - Choose a design for a tablet in **Room Displays** (or as the default in **Settings**). Custom designs are saved on the tablet, so they keep working when the network drops.
 - A design that a tablet uses cannot be deleted until those tablets are switched to another design.
+- When a design is saved, tablets that show it reload straight away.
 
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.

@@ -128,6 +128,7 @@ const RULES = [
   ['GET', /^\/api\/inbound\/log$/, 'settings.manage'],
   ['POST', /^\/api\/settings\/inbound-secret$/, 'settings.manage'],
   ['GET', /^\/api\/designs$/, null],
+  ['POST', /^\/api\/uploads$/, 'designs.manage'],
   ['POST', /^\/api\/designs$/, 'designs.manage'],
   ['GET', /^\/api\/designs\/\d+$/, 'designs.manage'],
   ['PUT', /^\/api\/designs\/\d+$/, 'designs.manage'],

@@ -30,8 +30,8 @@
       case 'video': {
         const yt = youtubeId(p.url);
         if (yt) return wrap(`<iframe src="https://www.youtube.com/embed/${yt}?autoplay=1&mute=1&loop=1&playlist=${yt}&controls=0&playsinline=1" allow="autoplay; encrypted-media" style="width:100%;height:100%;border:0;pointer-events:none"></iframe>`);
-        if (/^https?:\/\/.+\.(mp4|webm|ogg)(\?|$)/i.test(p.url || '')) return wrap(`<video src="${esc(p.url)}" muted autoplay loop playsinline style="width:100%;height:100%;object-fit:${p.fit || 'cover'};pointer-events:none"></video>`);
-        return wrap(`<div class="dz-placeholder">Video: paste a YouTube link or an MP4 link in properties</div>`);
+        if (/^(https?:\/\/.+|\/uploads\/[\w.-]+)\.(mp4|webm|ogg)(\?|$)/i.test(p.url || '')) return wrap(`<video src="${esc(p.url)}" muted autoplay loop playsinline style="width:100%;height:100%;object-fit:${p.fit || 'cover'};pointer-events:none"></video>`);
+        return wrap(`<div class="dz-placeholder">Video: upload an MP4 file or paste a YouTube link in properties</div>`);
       }
       case 'clock': {
         const c = clockText(p.format || 'both', ctx.now, ctx.fmt);
@@ -81,7 +81,8 @@
   // data: { room, current, next, live, settings, now (Date), offsetMs }
   function mount(container, design, data, opts = {}) {
     if (container._timer) clearInterval(container._timer);
-    const base = BASE[design.orientation] || BASE.landscape;
+    // the design's own resolution (for example 1280 x 800); older designs fall back to the orientation default
+    const base = { w: design.width || (BASE[design.orientation] || BASE.landscape).w, h: design.height || (BASE[design.orientation] || BASE.landscape).h };
     const cw = container.clientWidth || window.innerWidth, ch = container.clientHeight || window.innerHeight;
     const s = Math.min(cw / base.w, ch / base.h);
     const ox = (cw - base.w * s) / 2, oy = (ch - base.h * s) / 2;
@@ -105,5 +106,5 @@
     return stage;
   }
 
-  window.RFDesign = { mount, BASE };
+  window.RFDesign = { mount, BASE, resolutionOf: d => ({ w: d.width || 1920, h: d.height || 1080 }) };
 })();

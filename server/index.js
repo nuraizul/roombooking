@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 const { Server } = require('socket.io');
 const db = require('./db');
 const auth = require('./auth');
@@ -23,6 +24,11 @@ const auth = require('./auth');
   db.exec('CREATE TABLE IF NOT EXISTS floor_levels (name TEXT PRIMARY KEY, sort INTEGER DEFAULT 0)');
 }
 // Custom display designs
+{
+  const dc = db.prepare('PRAGMA table_info(display_designs)').all().map(c => c.name);
+  if (!dc.includes('width')) db.exec('ALTER TABLE display_designs ADD COLUMN width INTEGER');
+  if (!dc.includes('height')) db.exec('ALTER TABLE display_designs ADD COLUMN height INTEGER');
+}
 db.exec(`CREATE TABLE IF NOT EXISTS display_designs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, orientation TEXT NOT NULL,
   bg TEXT NOT NULL, elements TEXT NOT NULL DEFAULT '[]', updated_at TEXT)`);
@@ -44,8 +50,8 @@ function designFor(device, s) {
   const template = device.template || s.default_template;
   const row = /^design:\d+$/.test(template) ? db.prepare('SELECT * FROM display_designs WHERE id=?').get(Number(template.slice(7))) : null;
   if (!row) return { display: effectiveDisplay(device, s), design: null };
-  const design = { id: row.id, name: row.name, orientation: row.orientation, bg: row.bg, elements: JSON.parse(row.elements) };
-  return { display: { layout: row.orientation, template }, design };
+  const design = designRow(row);
+  return { display: { layout: design.orientation, template }, design };
 }
 const effectiveDisplay = (device, s) => ({
   layout: device.layout || s.default_layout,
@@ -83,6 +89,10 @@ const io = new Server(server, { cors: { origin: '*' } });
 app.use(express.json({ limit: '100kb' }));
 app.use('/api', auth.requireAccess);
 app.use(express.static(path.join(__dirname, '..', 'public')));
+// Uploaded photos and videos for designs (kept in the data folder, so they survive redeploys with a volume)
+const UPLOAD_DIR = path.join(__dirname, '..', 'data', 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
 
 const seedSetting = db.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) seedSetting.run(k, JSON.stringify(v));
@@ -618,11 +628,16 @@ app.post('/api/auth/password', (req, res) => {
 });
 
 // ---------- custom display designs
-const designRow = r => ({ id: r.id, name: r.name, orientation: r.orientation, bg: r.bg, updated_at: r.updated_at, elements: JSON.parse(r.elements || '[]') });
+const designRow = r => ({
+  id: r.id, name: r.name, bg: r.bg, updated_at: r.updated_at, elements: JSON.parse(r.elements || '[]'),
+  width: r.width || (r.orientation === 'portrait' ? 1080 : 1920), height: r.height || (r.orientation === 'portrait' ? 1920 : 1080),
+  orientation: r.orientation
+});
 const cleanText = (v, max = 2000) => String(v ?? '').slice(0, max);
 const safeUrl = (v, allowData) => {
   const t = String(v || '').trim();
   if (/^https?:\/\//i.test(t)) return t.slice(0, 2000);
+  if (/^\/uploads\/[\w.-]+$/.test(t)) return t;
   if (allowData && /^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,/i.test(t)) return t;
   return '';
 };
@@ -638,7 +653,10 @@ function sanitizeProps(p) {
 function designInput(b) {
   const name = String(b.name || '').trim();
   if (name.length < 2 || name.length > 60) return { error: 'Design name must be 2 to 60 characters' };
-  const orientation = LAYOUTS.includes(b.orientation) ? b.orientation : 'landscape';
+  const width = Math.round(Number(b.width)), height = Math.round(Number(b.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 320 || height < 320 || width > 3840 || height > 3840)
+    return { error: 'Resolution must be between 320 and 3840 pixels on each side' };
+  const orientation = height >= width ? 'portrait' : 'landscape';
   const bg = /^#[0-9a-fA-F]{6}$/.test(b.bg || '') ? b.bg : '#0e1522';
   if (!Array.isArray(b.elements) || b.elements.length > 80) return { error: 'elements must be a list of up to 80 items' };
   const num = (v, min, max, def) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
@@ -654,8 +672,17 @@ function designInput(b) {
   }
   const json = JSON.stringify(elements);
   if (json.length > 3000000) return { error: 'Design is too large. Use smaller images.' };
-  return { value: { name, orientation, bg, elements: json } };
+  return { value: { name, orientation, bg, elements: json, width, height } };
 }
+const UPLOAD_TYPES = { 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/ogg': '.ogv', 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp' };
+app.post('/api/uploads', express.raw({ type: Object.keys(UPLOAD_TYPES), limit: '60mb' }), (req, res) => {
+  const ext = UPLOAD_TYPES[req.headers['content-type']];
+  if (!ext) return bad(res, 'Use an MP4, WebM, OGG video or a PNG, JPG, GIF, WEBP image');
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return bad(res, 'The file is empty');
+  const name = crypto.randomBytes(12).toString('hex') + ext;
+  fs.writeFileSync(path.join(UPLOAD_DIR, name), req.body);
+  res.status(201).json({ url: `/uploads/${name}`, bytes: req.body.length });
+});
 app.get('/api/designs', (req, res) => res.json(db.prepare('SELECT id,name,orientation,updated_at FROM display_designs ORDER BY name').all()));
 app.get('/api/designs/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM display_designs WHERE id=?').get(Number(req.params.id));
@@ -666,8 +693,8 @@ app.post('/api/designs', (req, res) => {
   const v = designInput(req.body || {});
   if (v.error) return bad(res, v.error);
   try {
-    const info = db.prepare('INSERT INTO display_designs(name,orientation,bg,elements,updated_at) VALUES(?,?,?,?,?)')
-      .run(v.value.name, v.value.orientation, v.value.bg, v.value.elements, nowStr());
+    const info = db.prepare('INSERT INTO display_designs(name,orientation,bg,elements,updated_at,width,height) VALUES(?,?,?,?,?,?,?)')
+      .run(v.value.name, v.value.orientation, v.value.bg, v.value.elements, nowStr(), v.value.width, v.value.height);
     res.status(201).json(designRow(db.prepare('SELECT * FROM display_designs WHERE id=?').get(info.lastInsertRowid)));
   } catch (e) {
     if (isUnique(e)) return bad(res, 'A design with that name already exists', 409);
@@ -680,9 +707,10 @@ app.put('/api/designs/:id', (req, res) => {
   const v = designInput(req.body || {});
   if (v.error) return bad(res, v.error);
   try {
-    db.prepare('UPDATE display_designs SET name=?,orientation=?,bg=?,elements=?,updated_at=? WHERE id=?')
-      .run(v.value.name, v.value.orientation, v.value.bg, v.value.elements, nowStr(), id);
+    db.prepare('UPDATE display_designs SET name=?,orientation=?,bg=?,elements=?,updated_at=?,width=?,height=? WHERE id=?')
+      .run(v.value.name, v.value.orientation, v.value.bg, v.value.elements, nowStr(), v.value.width, v.value.height, id);
     io.emit('devices:changed', {});
+    io.emit('display:refresh');   // every tablet that shows a design reloads it now
     res.json(designRow(db.prepare('SELECT * FROM display_designs WHERE id=?').get(id)));
   } catch (e) {
     if (isUnique(e)) return bad(res, 'A design with that name already exists', 409);
