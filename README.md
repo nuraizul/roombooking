@@ -101,6 +101,22 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - Rooms that are not placed yet appear under **Not placed yet**. Click **Add here** to put one on the current level.
 - Only roles with **Manage rooms** can edit the plan. Everyone with **View rooms** can see it.
 
+## Email booking
+- Settings → **Email booking**: enable toggle, set working hours, and copy the endpoint and secret.
+- Users book by sending or cc'ing the booking mailbox with a subject like `[BOOK] Bilik 101 | 25/11/2026 | 14:00-15:00 | Title`.
+- Bookings arrive as **Pending** and wait for a Receptionist (or any role with approve permission).
+- Set up Power Automate once. See **POWER-AUTOMATE-EMAIL-BOOKING.md**.
+- The Receptionist role is created automatically. It can view and approve bookings.
+
+## Display Designer (custom display screens)
+- **Display Designer** (admins, or roles with "Design display screens"): create a screen, then add elements from the left:
+  text, photo, video (YouTube or MP4 link), clock and date, room name, status (Available / In use), current meeting, next meeting, today's schedule, facilities, and box.
+- Drag an element to move it, drag the blue corner to resize, and edit its details on the right.
+- **Show this element**: always, only when the room is available, or only when it is in use. This makes screens that change colour with the status.
+- The preview on the designer uses the same drawing code as the tablet, so what you see is what the tablet shows.
+- Choose a design for a tablet in **Room Displays** (or as the default in **Settings**). Custom designs are saved on the tablet, so they keep working when the network drops.
+- A design that a tablet uses cannot be deleted until those tablets are switched to another design.
+
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.
 - **Roles page** (Administrators only): create roles and tick what each role can access. The built-in Administrator role always has everything.

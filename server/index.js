@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
@@ -21,15 +22,31 @@ const auth = require('./auth');
   for (const c of ['map_x', 'map_y', 'map_w', 'map_h']) if (!rc.includes(c)) db.exec(`ALTER TABLE rooms ADD COLUMN ${c} INTEGER`);
   db.exec('CREATE TABLE IF NOT EXISTS floor_levels (name TEXT PRIMARY KEY, sort INTEGER DEFAULT 0)');
 }
+// Custom display designs
+db.exec(`CREATE TABLE IF NOT EXISTS display_designs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, orientation TEXT NOT NULL,
+  bg TEXT NOT NULL, elements TEXT NOT NULL DEFAULT '[]', updated_at TEXT)`);
+// Email booking: every email handled, for the Activity list in Settings
+db.exec(`CREATE TABLE IF NOT EXISTS inbound_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, received_at TEXT NOT NULL, sender TEXT,
+  subject TEXT, outcome TEXT NOT NULL, message TEXT, booking_id INTEGER)`);
 // Statuses that do not hold the room
 const FREE_STATUSES = "('Cancelled','Rejected')";
 const displayOptionsInput = b => {
   const layout = b.layout === undefined || b.layout === '' || b.layout === null ? null : String(b.layout);
   const template = b.template === undefined || b.template === '' || b.template === null ? null : String(b.template);
   if (layout && !LAYOUTS.includes(layout)) return { error: 'Layout must be landscape or portrait' };
-  if (template && !TEMPLATES.includes(template)) return { error: 'Unknown design' };
+  if (template && !validTemplate(template)) return { error: 'Unknown design' };
   return { value: { layout, template } };
 };
+// Which design a tablet shows: a custom design when chosen, otherwise a built-in template
+function designFor(device, s) {
+  const template = device.template || s.default_template;
+  const row = /^design:\d+$/.test(template) ? db.prepare('SELECT * FROM display_designs WHERE id=?').get(Number(template.slice(7))) : null;
+  if (!row) return { display: effectiveDisplay(device, s), design: null };
+  const design = { id: row.id, name: row.name, orientation: row.orientation, bg: row.bg, elements: JSON.parse(row.elements) };
+  return { display: { layout: row.orientation, template }, design };
+}
 const effectiveDisplay = (device, s) => ({
   layout: device.layout || s.default_layout,
   template: device.template || s.default_template
@@ -40,7 +57,14 @@ const ONLINE_WINDOW_MIN = 2;
 const ROLES = ['Administrator', 'Staff'];
 const LAYOUTS = ['landscape', 'portrait'];
 const TEMPLATES = ['classic', 'minimal', 'bold'];
+const ELEMENT_TYPES = ['text', 'image', 'video', 'clock', 'room_name', 'status', 'current', 'next', 'schedule', 'facilities', 'shape'];
+// A template is a built-in name, or "design:<id>" for a custom design
+const validTemplate = t => TEMPLATES.includes(t) || (/^design:\d+$/.test(String(t)) && !!db.prepare('SELECT 1 FROM display_designs WHERE id=?').get(Number(String(t).slice(7))));
 const DEFAULT_SETTINGS = {
+  inbound_enabled: false,
+  inbound_secret: '',
+  inbound_open: '08:00',
+  inbound_close: '18:00',
   default_layout: 'landscape',
   default_template: 'classic',
   system_name: 'RoomFlow Booking System',
@@ -142,7 +166,7 @@ function validateBooking(body, id = null) {
   if (!s.allow_same_day && start.slice(0, 10) <= todayStr()) return { error: 'Same-day bookings are not allowed' };
   if (!db.prepare('SELECT id FROM rooms WHERE id=? AND active=1').get(room_id)) return { error: 'Room not found' };
   const c = findConflict(room_id, start, end, id, s.buffer_minutes);
-  if (c) return { error: `Room is already booked ${c.start_at.slice(11, 16)}–${c.end_at.slice(11, 16)} (${c.title})`, conflict: true };
+  if (c) return { error: `Room is already booked ${c.start_at.slice(11, 16)}–${c.end_at.slice(11, 16)} (${c.title})`, conflict: true, clash: c };
   return { value: { room_id, title, organizer, start_at: start, end_at: end } };
 }
 function broadcastBooking(type, booking, oldRoomId) {
@@ -186,7 +210,11 @@ app.get('/api/time', (req, res) => res.json({
   TZ_env: process.env.TZ || null
 }));
 
-app.get('/api/settings', (req, res) => res.json(getSettings()));
+app.get('/api/settings', (req, res) => {
+  const s = getSettings();
+  if (!auth.can(req.user, 'settings.manage')) delete s.inbound_secret;
+  res.json(s);
+});
 app.put('/api/settings', (req, res) => {
   const body = req.body || {};
   const updates = {};
@@ -205,7 +233,13 @@ app.put('/api/settings', (req, res) => {
   }
   if (updates.time_format !== undefined && !['12', '24'].includes(updates.time_format)) return bad(res, 'time_format must be 12 or 24');
   if (updates.default_layout !== undefined && !LAYOUTS.includes(updates.default_layout)) return bad(res, 'Default layout must be landscape or portrait');
-  if (updates.default_template !== undefined && !TEMPLATES.includes(updates.default_template)) return bad(res, 'Unknown default design');
+  for (const k of ['inbound_open', 'inbound_close']) {
+    if (updates[k] !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(updates[k])) return bad(res, `${k} must be a time like 08:00`);
+  }
+  if (updates.inbound_enabled === true && !(updates.inbound_secret || getSettings().inbound_secret)) {
+    updates.inbound_secret = crypto.randomBytes(24).toString('hex');
+  }
+  if (updates.default_template !== undefined && !validTemplate(updates.default_template)) return bad(res, 'Unknown default design');
   if (updates.default_duration !== undefined && (updates.default_duration < 5 || updates.default_duration > 720)) return bad(res, 'Default duration must be 5 to 720 minutes');
   if (updates.buffer_minutes !== undefined && (updates.buffer_minutes < 0 || updates.buffer_minutes > 120)) return bad(res, 'Buffer must be 0 to 120 minutes');
   if (updates.display_refresh_seconds !== undefined && (updates.display_refresh_seconds < 5 || updates.display_refresh_seconds > 3600)) return bad(res, 'Display refresh must be 5 to 3600 seconds');
@@ -407,7 +441,8 @@ app.get('/api/display/:deviceCode', (req, res) => {
   const settings = { system_name: s.system_name, time_format: s.time_format, display_refresh_seconds: s.display_refresh_seconds };
   const display = effectiveDisplay(device, s);
   const room = device.room_id ? db.prepare('SELECT * FROM rooms WHERE id=? AND active=1').get(device.room_id) : null;
-  if (!room) return res.json({ device, room: null, current: null, upcoming: [], schedule: [], server_now: now, settings, display: effectiveDisplay(device, s) });
+  const design = designFor(device, s);
+  if (!room) return res.json({ device, room: null, current: null, upcoming: [], schedule: [], server_now: now, settings, display: design.display, design: design.design });
   // The tablet only shows confirmed meetings. Pending requests wait for approval and are not shown.
   const list = db.prepare(`${BOOKING_SQL} WHERE b.room_id=? AND b.status NOT IN ('Cancelled','Rejected','Pending') AND b.end_at>? ORDER BY b.start_at LIMIT 12`)
     .all(room.id, now).map(b => bookingShape(b, now));
@@ -415,7 +450,7 @@ app.get('/api/display/:deviceCode', (req, res) => {
   const upcoming = list.filter(b => b.time_state === 'Upcoming').slice(0, 1); // display shows only the next meeting
   // schedule: the next few live bookings, so the tablet can keep working offline from its saved copy
   const schedule = list.map(b => ({ id: b.id, title: b.title, organizer: b.organizer, start_at: b.start_at, end_at: b.end_at, status: b.status }));
-  res.json({ device, room: roomShape(room), current, upcoming, schedule, server_now: now, settings, display });
+  res.json({ device, room: roomShape(room), current, upcoming, schedule, server_now: now, settings, display: design.display, design: design.design });
 });
 
 // ---------- users (admin only, enforced by auth rules)
@@ -582,6 +617,88 @@ app.post('/api/auth/password', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- custom display designs
+const designRow = r => ({ id: r.id, name: r.name, orientation: r.orientation, bg: r.bg, updated_at: r.updated_at, elements: JSON.parse(r.elements || '[]') });
+const cleanText = (v, max = 2000) => String(v ?? '').slice(0, max);
+const safeUrl = (v, allowData) => {
+  const t = String(v || '').trim();
+  if (/^https?:\/\//i.test(t)) return t.slice(0, 2000);
+  if (allowData && /^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,/i.test(t)) return t;
+  return '';
+};
+function sanitizeProps(p) {
+  const out = {};
+  for (const [k, v] of Object.entries(p).slice(0, 40)) {
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+    else if (typeof v === 'boolean') out[k] = v;
+    else if (typeof v === 'string') out[k] = /url|src/i.test(k) ? safeUrl(v, k === 'imageUrl' || k === 'url') : cleanText(v);
+  }
+  return out;
+}
+function designInput(b) {
+  const name = String(b.name || '').trim();
+  if (name.length < 2 || name.length > 60) return { error: 'Design name must be 2 to 60 characters' };
+  const orientation = LAYOUTS.includes(b.orientation) ? b.orientation : 'landscape';
+  const bg = /^#[0-9a-fA-F]{6}$/.test(b.bg || '') ? b.bg : '#0e1522';
+  if (!Array.isArray(b.elements) || b.elements.length > 80) return { error: 'elements must be a list of up to 80 items' };
+  const num = (v, min, max, def) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
+  const elements = [];
+  for (const e of b.elements) {
+    if (!ELEMENT_TYPES.includes(e.type)) return { error: `Unknown element: ${e.type}` };
+    elements.push({
+      id: cleanText(e.id, 40) || Math.random().toString(36).slice(2, 10), type: e.type,
+      x: num(e.x, 0, 100, 0), y: num(e.y, 0, 100, 0), w: num(e.w, 1, 100, 20), h: num(e.h, 1, 100, 10),
+      show: ['always', 'free', 'busy'].includes(e.show) ? e.show : 'always',
+      props: e.props && typeof e.props === 'object' ? sanitizeProps(e.props) : {}
+    });
+  }
+  const json = JSON.stringify(elements);
+  if (json.length > 3000000) return { error: 'Design is too large. Use smaller images.' };
+  return { value: { name, orientation, bg, elements: json } };
+}
+app.get('/api/designs', (req, res) => res.json(db.prepare('SELECT id,name,orientation,updated_at FROM display_designs ORDER BY name').all()));
+app.get('/api/designs/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM display_designs WHERE id=?').get(Number(req.params.id));
+  if (!row) return bad(res, 'Design not found', 404);
+  res.json(designRow(row));
+});
+app.post('/api/designs', (req, res) => {
+  const v = designInput(req.body || {});
+  if (v.error) return bad(res, v.error);
+  try {
+    const info = db.prepare('INSERT INTO display_designs(name,orientation,bg,elements,updated_at) VALUES(?,?,?,?,?)')
+      .run(v.value.name, v.value.orientation, v.value.bg, v.value.elements, nowStr());
+    res.status(201).json(designRow(db.prepare('SELECT * FROM display_designs WHERE id=?').get(info.lastInsertRowid)));
+  } catch (e) {
+    if (isUnique(e)) return bad(res, 'A design with that name already exists', 409);
+    throw e;
+  }
+});
+app.put('/api/designs/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM display_designs WHERE id=?').get(id)) return bad(res, 'Design not found', 404);
+  const v = designInput(req.body || {});
+  if (v.error) return bad(res, v.error);
+  try {
+    db.prepare('UPDATE display_designs SET name=?,orientation=?,bg=?,elements=?,updated_at=? WHERE id=?')
+      .run(v.value.name, v.value.orientation, v.value.bg, v.value.elements, nowStr(), id);
+    io.emit('devices:changed', {});
+    res.json(designRow(db.prepare('SELECT * FROM display_designs WHERE id=?').get(id)));
+  } catch (e) {
+    if (isUnique(e)) return bad(res, 'A design with that name already exists', 409);
+    throw e;
+  }
+});
+app.delete('/api/designs/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const tpl = `design:${id}`;
+  if (!db.prepare('SELECT 1 FROM display_designs WHERE id=?').get(id)) return bad(res, 'Design not found', 404);
+  const n = db.prepare('SELECT COUNT(*) AS n FROM devices WHERE template=?').get(tpl).n;
+  if (n || getSettings().default_template === tpl) return bad(res, 'This design is used by a display. Switch those displays to another design first.', 409);
+  db.prepare('DELETE FROM display_designs WHERE id=?').run(id);
+  res.json({ ok: true });
+});
+
 // ---------- floor plan
 const CANVAS_W = 1000, CANVAS_H = 600;
 const levelNames = () => {
@@ -654,6 +771,117 @@ app.delete('/api/floorplan/levels/:name', (req, res) => {
   io.emit('rooms:changed', {});
   res.json({ ok: true });
 });
+
+// ---------- email booking (Power Automate reads the mailbox and calls this)
+const SUBJECT_RE = /^\s*\[(BOOK|CANCEL)\]\s*([^|]+?)\s*\|\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\|\s*(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(?:\|\s*(.+?))?\s*$/i;
+const FORMAT_HELP = 'Format subject: [BOOK] Bilik 101 | 25/11/2026 | 14:00-15:00 | Tajuk mesyuarat';
+function parseInboundSubject(subject) {
+  const m = String(subject || '').match(SUBJECT_RE);
+  if (!m) return { error: 'Subject tidak sah. ' + FORMAT_HELP };
+  const [, action, roomText, dd, mm, yyyy, t1, t2, title] = m;
+  const date = `${yyyy}-${pad(Number(mm))}-${pad(Number(dd))}`;
+  const probe = new Date(date + 'T00:00:00');
+  if (isNaN(probe) || probe.getDate() !== Number(dd)) return { error: 'Tarikh tidak sah. ' + FORMAT_HELP };
+  const hm = t => { const [h, mi] = t.split(':').map(Number); return h < 24 && mi < 60 ? `${pad(h)}:${pad(mi)}` : null; };
+  const st = hm(t1), en = hm(t2);
+  if (!st || !en) return { error: 'Masa tidak sah. ' + FORMAT_HELP };
+  return { value: {
+    action: action.toUpperCase(), roomText: roomText.replace(/^(bilik|room)\s*/i, '').trim(), date,
+    start_at: `${date} ${st}:00`, end_at: `${date} ${en}:00`, title: (title || '').trim()
+  } };
+}
+function freeSlots(room, date, minutes, max = 5) {
+  const s = getSettings();
+  const toMin = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const open = toMin(s.inbound_open), close = toMin(s.inbound_close), now = nowStr();
+  const out = [];
+  for (let t = open; t + minutes <= close && out.length < max; t += 30) {
+    const st = `${date} ${pad(Math.floor(t / 60))}:${pad(t % 60)}:00`;
+    const en = addMin(st, minutes);
+    if (st < now) continue;
+    if (!findConflict(room.id, st, en, null, s.buffer_minutes)) out.push(`${st.slice(11, 16)}-${en.slice(11, 16)}`);
+  }
+  return out;
+}
+function secretOk(given, expected) {
+  const a = Buffer.from(String(given || '')), b = Buffer.from(String(expected || ''));
+  return b.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+app.post('/api/inbound/email', (req, res) => {
+  const s = getSettings();
+  const received = nowStr();
+  const sender = String(req.body?.from || '').trim().toLowerCase();
+  const subject = String(req.body?.subject || '').trim();
+  const log = (outcome, message, bookingId = null) => db.prepare(
+    'INSERT INTO inbound_log(received_at,sender,subject,outcome,message,booking_id) VALUES(?,?,?,?,?,?)'
+  ).run(received, sender || null, subject.slice(0, 200), outcome, message, bookingId);
+  const reply = (code, body) => res.status(code).json({ ok: code < 300, ...body });
+
+  if (!s.inbound_enabled) return reply(403, { message: 'Tempahan melalui email sedang dimatikan.' });
+  if (!secretOk(req.get('X-Inbound-Secret'), s.inbound_secret)) {
+    log('rejected', 'Secret tidak sah');
+    return reply(401, { message: 'Secret tidak sah.' });
+  }
+  if (!sender) { log('invalid', 'Pengirim tiada'); return reply(400, { message: 'Alamat pengirim diperlukan.' }); }
+  const p = parseInboundSubject(subject);
+  if (p.error) { log('invalid', p.error); return reply(400, { message: p.error }); }
+  const v = p.value;
+  const room = db.prepare('SELECT * FROM rooms WHERE active=1 AND (LOWER(room_no)=LOWER(?) OR LOWER(name)=LOWER(?))').get(v.roomText, v.roomText);
+  if (!room) {
+    const names = db.prepare('SELECT room_no FROM rooms WHERE active=1 ORDER BY room_no').all().map(r => r.room_no).join(', ');
+    const message = `Bilik "${v.roomText}" tidak dijumpai. Nombor bilik yang sah: ${names}.`;
+    log('invalid', message);
+    return reply(400, { message });
+  }
+  const user = db.prepare('SELECT id,name,role FROM users WHERE LOWER(email)=? AND active=1').get(sender);
+  const when = `${v.date} ${v.start_at.slice(11, 16)}-${v.end_at.slice(11, 16)}`;
+
+  if (v.action === 'CANCEL') {
+    const b = db.prepare(`SELECT * FROM bookings WHERE room_id=? AND start_at=? AND end_at=? AND status NOT IN ('Cancelled','Rejected') ORDER BY id DESC LIMIT 1`)
+      .get(room.id, v.start_at, v.end_at);
+    if (!b) { const message = `Tiada tempahan aktif untuk ${room.name} pada ${when}.`; log('not_found', message); return reply(404, { message }); }
+    const mine = (user && b.created_by === user.id) || b.organizer.toLowerCase() === sender || (user && auth.can(user, 'bookings.manage'));
+    if (!mine) { const message = 'Tempahan ini bukan milik anda.'; log('forbidden', message, b.id); return reply(403, { message }); }
+    db.prepare("UPDATE bookings SET status='Cancelled' WHERE id=?").run(b.id);
+    broadcastBooking('cancelled', getBooking(b.id));
+    const message = `Tempahan ${room.name} pada ${when} telah dibatalkan.`;
+    log('cancelled', message, b.id);
+    return reply(200, { message, booking_id: b.id });
+  }
+
+  if (!v.title) { const message = 'Tajuk mesyuarat diperlukan. ' + FORMAT_HELP; log('invalid', message); return reply(400, { message }); }
+  if (v.start_at.slice(11, 16) < s.inbound_open || v.end_at.slice(11, 16) > s.inbound_close) {
+    const message = `Tempahan di luar waktu operasi (${s.inbound_open}-${s.inbound_close}).`;
+    log('outside_hours', message);
+    return reply(409, { message, free_slots: [] });
+  }
+  const organizer = user ? user.name : sender;
+  const check = validateBooking({ room_id: room.id, title: v.title, organizer, start_at: v.start_at, end_at: v.end_at });
+  if (check.error) {
+    const minutes = (parseLocal(v.end_at) - parseLocal(v.start_at)) / 60000;
+    const slots = check.conflict ? freeSlots(room, v.date, minutes) : [];
+    const c = check.clash;
+    const reason = check.conflict
+      ? `Bilik ${room.name} sudah ditempah ${c.start_at.slice(11, 16)}-${c.end_at.slice(11, 16)} (${c.title}).`
+      : check.error;
+    const message = reason + (check.conflict ? (slots.length ? ` Slot kosong pada tarikh tu: ${slots.join(', ')}.` : ' Tiada slot kosong pada tarikh tu.') : '');
+    log(check.conflict ? 'conflict' : 'invalid', message);
+    return reply(check.conflict ? 409 : 400, { message, free_slots: slots });
+  }
+  const info = db.prepare("INSERT INTO bookings(room_id,title,organizer,start_at,end_at,status,created_by) VALUES(?,?,?,?,?,'Pending',?)")
+    .run(room.id, v.title, organizer, v.start_at, v.end_at, user ? user.id : null);
+  const booking = getBooking(info.lastInsertRowid);
+  broadcastBooking('created', booking);
+  const message = `Tempahan ${room.name} pada ${when} telah diterima dan menunggu kelulusan.`;
+  log('created', message, booking.id);
+  return reply(201, { message, booking_id: booking.id, status: 'Pending' });
+});
+app.post('/api/settings/inbound-secret', (req, res) => {
+  const secret = crypto.randomBytes(24).toString('hex');
+  db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('inbound_secret', JSON.stringify(secret));
+  res.json({ inbound_secret: secret });
+});
+app.get('/api/inbound/log', (req, res) => res.json(db.prepare('SELECT * FROM inbound_log ORDER BY id DESC LIMIT 30').all()));
 
 // ---------- unknown api + errors
 app.use('/api', (req, res) => bad(res, 'Not found', 404));

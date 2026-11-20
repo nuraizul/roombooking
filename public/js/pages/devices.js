@@ -2,7 +2,7 @@
   const A = window.RoomFlowAPI, RF = window.RF;
   RF.pages.display = {
     events: ['devices:changed', 'rooms:changed'],
-    devices: [], rooms: [], settings: {},
+    devices: [], rooms: [], settings: {}, designs: [],
     async init(el) {
       this.el = el;
       el.innerHTML = `
@@ -21,12 +21,14 @@
       await this.load();
     },
     async load() {
-      const [devices, rooms, settings] = await Promise.all([A.getDevices(), A.getRooms(), A.getSettings()]);
+      const [devices, rooms, settings, designs] = await Promise.all([A.getDevices(), A.getRooms(), A.getSettings(), A.getDesigns()]);
+      this.designs = designs;
       this.devices = devices; this.rooms = rooms; this.settings = settings;
       const L = { landscape: 'Landscape', portrait: 'Portrait' };
       const T = { classic: 'Classic', minimal: 'Minimal', bold: 'Bold' };
+      this.designs.forEach(d => { T['design:' + d.id] = 'Custom: ' + d.name; });
       const layoutOpts = v => `<option value="">Default (${L[this.settings.default_layout]})</option>` + Object.entries(L).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('');
-      const tplOpts = v => `<option value="">Default (${T[this.settings.default_template]})</option>` + Object.entries(T).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('');
+      const tplOpts = v => `<option value="">Default (${T[this.settings.default_template] || 'Classic'})</option>` + Object.entries(T).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('');
       const online = devices.filter(d => d.online).length;
       this.el.querySelector('#stats').innerHTML = [
         ['Total devices', devices.length, 'Registered displays', 'fa-display', ''],

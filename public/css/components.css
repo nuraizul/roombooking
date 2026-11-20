@@ -320,3 +320,34 @@ html[data-theme="dark"] .device-card:hover{border-color:#3a4d70}
 html[data-theme="dark"] .fp-canvas{background-color:#131d2f;border-color:#34446a;background-image:linear-gradient(#1d2a42 1px,transparent 1px),linear-gradient(90deg,#1d2a42 1px,transparent 1px)}
 html[data-theme="dark"] .fp-card,html[data-theme="dark"] .level-tab{background:var(--surface);color:var(--text)}
 html[data-theme="dark"] .fp-form select,html[data-theme="dark"] .fp-form input{background:var(--surface2);color:var(--text)}
+.copy-row{display:flex;gap:8px;align-items:center}
+.copy-row input{flex:1;min-width:0;height:34px;border:1px solid var(--border);border-radius:8px;padding:0 10px;font-size:12px;background:#f7f9fc;color:var(--text);font-family:ui-monospace,Consolas,monospace}
+html[data-theme="dark"] .copy-row input{background:var(--surface2)}
+
+/* ===== Custom display designs ===== */
+.dz-host{position:fixed;inset:0;overflow:hidden;background:#000}
+.dz-stage{position:absolute;overflow:hidden;font-family:'DM Sans',Arial,sans-serif;color:#fff}
+.dz-el{position:absolute;overflow:hidden;box-sizing:border-box}
+.dz-placeholder{width:100%;height:100%;display:grid;place-items:center;border:3px dashed rgba(128,140,160,.6);color:rgba(160,170,190,.9);font-size:28px;text-align:center;padding:10px;box-sizing:border-box;border-radius:12px}
+.dz-row{display:grid;grid-template-columns:auto 1fr auto;gap:.6em;align-items:baseline;padding:.25em 0;border-bottom:1px solid rgba(255,255,255,.12)}
+.dz-row i{font-style:normal;opacity:.7;font-size:.8em}
+.dz-sel{outline:4px solid #536dfe;outline-offset:3px;cursor:move}
+.dz-handle{position:absolute;right:-8px;bottom:-8px;width:18px;height:18px;background:#536dfe;border-radius:4px;cursor:nwse-resize;border:2px solid #fff}
+/* designer layout */
+.dz-editor{display:grid;grid-template-columns:200px minmax(0,1fr) 300px;gap:14px;align-items:start}
+.dz-palette{display:grid;gap:6px}
+.dz-palette button{display:flex;align-items:center;gap:8px;text-align:left;font-size:12px;padding:9px 10px}
+.dz-canvas-wrap{position:relative;width:100%;aspect-ratio:16/9;background:#0b1220;border-radius:12px;overflow:hidden;border:1px solid var(--border);touch-action:none;user-select:none}
+.dz-canvas-wrap.portrait{aspect-ratio:9/16;max-height:78vh;width:auto;margin:0 auto}
+.dz-props{display:grid;gap:8px;background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px}
+.dz-props label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px}
+.dz-props input,.dz-props select,.dz-props textarea{width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px;background:#fff;color:var(--text)}
+.dz-props textarea{min-height:70px;font-family:inherit}
+.dz-props .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dz-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+.dz-card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;display:grid;gap:10px}
+.dz-thumb{aspect-ratio:16/9;border-radius:8px;overflow:hidden;position:relative}
+.dz-thumb.portrait{aspect-ratio:9/16;max-height:160px;width:auto;margin:0 auto}
+html[data-theme="dark"] .dz-props,html[data-theme="dark"] .dz-card{background:var(--surface)}
+html[data-theme="dark"] .dz-props input,html[data-theme="dark"] .dz-props select,html[data-theme="dark"] .dz-props textarea{background:var(--surface2);color:var(--text)}
+@media(max-width:1100px){.dz-editor{grid-template-columns:1fr}}

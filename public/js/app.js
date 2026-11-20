@@ -12,6 +12,7 @@
     { id: 'users', label: 'Users', icon: 'fa-users', href: 'users.html', perm: 'users.manage' },
     { id: 'roles', label: 'Roles', icon: 'fa-user-tag', href: 'roles.html', perm: 'roles.manage' },
     { id: 'display', label: 'Room Displays', icon: 'fa-display', href: 'room-display.html', perm: 'devices.manage' },
+    { id: 'designer', label: 'Display Designer', icon: 'fa-object-group', href: 'designer.html', perm: 'designs.manage' },
     { id: 'settings', label: 'Settings', icon: 'fa-gear', href: 'settings.html', perm: 'settings.manage' }
   ];
   const META = {
@@ -23,6 +24,7 @@
     users: ['Users', 'Manage user accounts and roles.'],
     roles: ['Roles', 'Create roles and choose what each role can access.'],
     display: ['Room Displays', 'Register tablets and assign them to rooms.'],
+    designer: ['Display Designer', 'Design custom screens for room displays.'],
     settings: ['Settings', 'Booking rules and system configuration.']
   };
 

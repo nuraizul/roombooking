@@ -31,6 +31,7 @@ const PERM_CATALOG = [
   { key: 'users.manage', label: 'Manage users and passwords', group: 'Administration' },
   { key: 'roles.manage', label: 'Manage roles and permissions', group: 'Administration' },
   { key: 'devices.manage', label: 'Manage room displays', group: 'Administration' },
+  { key: 'designs.manage', label: 'Design display screens', group: 'Administration' },
   { key: 'settings.manage', label: 'Change system settings', group: 'Administration' }
 ];
 const ALL_PERMS = PERM_CATALOG.map(p => p.key);
@@ -38,6 +39,9 @@ const ADMIN_ROLE = 'Administrator';
 
 // Seed the built-in roles on first run. Administrator always has every permission and cannot be edited.
 db.prepare("INSERT OR IGNORE INTO roles(name,perms,system) VALUES(?,?,1)").run(ADMIN_ROLE, JSON.stringify(ALL_PERMS));
+db.prepare("INSERT OR IGNORE INTO roles(name,perms,system) VALUES('Receptionist',?,0)").run(JSON.stringify([
+  'dashboard.view', 'rooms.view', 'bookings.view', 'bookings.approve', 'calendar.view'
+]));
 db.prepare("INSERT OR IGNORE INTO roles(name,perms,system) VALUES('Staff',?,0)").run(JSON.stringify([
   'dashboard.view', 'rooms.view', 'bookings.view', 'bookings.create', 'bookings.edit_own', 'calendar.view'
 ]));
@@ -93,7 +97,7 @@ const hasAnyPassword = () => !!db.prepare("SELECT 1 FROM users WHERE password_ha
 const countActiveAdmins = () => db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='Administrator' AND active=1").get().n;
 
 // ---------- route access rules: [method, path regex, permission or null (any logged-in user)]
-const PUBLIC = [/^\/api\/health$/, /^\/api\/time$/, /^\/api\/auth\//, /^\/api\/display\//];
+const PUBLIC = [/^\/api\/health$/, /^\/api\/time$/, /^\/api\/auth\//, /^\/api\/display\//, /^\/api\/inbound\/email$/];
 const RULES = [
   ['GET', /^\/api\/settings$/, null],
   ['PUT', /^\/api\/settings$/, 'settings.manage'],
@@ -121,6 +125,13 @@ const RULES = [
   ['POST', /^\/api\/users$/, 'users.manage'],
   ['PUT', /^\/api\/users\/\d+$/, 'users.manage'],
   ['PATCH', /^\/api\/users\/\d+\/active$/, 'users.manage'],
+  ['GET', /^\/api\/inbound\/log$/, 'settings.manage'],
+  ['POST', /^\/api\/settings\/inbound-secret$/, 'settings.manage'],
+  ['GET', /^\/api\/designs$/, null],
+  ['POST', /^\/api\/designs$/, 'designs.manage'],
+  ['GET', /^\/api\/designs\/\d+$/, 'designs.manage'],
+  ['PUT', /^\/api\/designs\/\d+$/, 'designs.manage'],
+  ['DELETE', /^\/api\/designs\/\d+$/, 'designs.manage'],
   ['GET', /^\/api\/roles$/, null],
   ['POST', /^\/api\/roles$/, 'roles.manage'],
   ['PUT', /^\/api\/roles\/[^/]+$/, 'roles.manage'],

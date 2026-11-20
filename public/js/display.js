@@ -57,11 +57,22 @@
       .sort((a, b) => a.start_at < b.start_at ? -1 : 1);
     const current = live.find(b => b.start_at <= now) || null;
     const upcoming = live.filter(b => b.start_at > now).slice(0, 1);
-    return { current, upcoming };
+    return { current, upcoming, live };
+  }
+
+  // Custom design: the designer decides what is shown, using the same status data
+  function renderDesign(data) {
+    const { current, upcoming, live } = derive(data);
+    root.innerHTML = '<div class="dz-host"></div>';
+    RFDesign.mount(root.querySelector('.dz-host'), data.design, {
+      room: data.room, current, next: upcoming[0] || null, live,
+      settings, now: venueNow(), offsetMs
+    });
   }
 
   function render(data) {
     const { room, device } = data;
+    if (data.design) return renderDesign(data);
     if (!room) {
       return message(esc(device?.device_name || code), 'This display is not assigned to a room yet.<br>Assign it on the Room Displays page of the admin console.');
     }
@@ -133,6 +144,8 @@
     }
     timer = setTimeout(refresh, Math.min(15, Math.max(5, settings.display_refresh_seconds || 15)) * 1000);
   }
+
+  window.addEventListener('resize', () => { if (lastData) showData(lastData); });
 
   // ---------- start
   if (!code) {
