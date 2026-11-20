@@ -58,8 +58,6 @@
     addLevel: name => request('/floorplan/levels', { method: 'POST', body: { name } }),
     renameLevel: (from, to) => request(`/floorplan/levels/${encodeURIComponent(from)}`, { method: 'PATCH', body: { name: to } }),
     deleteLevel: name => request(`/floorplan/levels/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-    getInboundLog: () => request('/inbound/log'),
-    regenerateInboundSecret: () => request('/settings/inbound-secret', { method: 'POST' }),
     getRoles: () => request('/roles'),
     addRole: r => request('/roles', { method: 'POST', body: r }),
     updateRole: (name, r) => request(`/roles/${encodeURIComponent(name)}`, { method: 'PUT', body: r }),
