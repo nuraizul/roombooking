@@ -93,7 +93,7 @@ const hasAnyPassword = () => !!db.prepare("SELECT 1 FROM users WHERE password_ha
 const countActiveAdmins = () => db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='Administrator' AND active=1").get().n;
 
 // ---------- route access rules: [method, path regex, permission or null (any logged-in user)]
-const PUBLIC = [/^\/api\/health$/, /^\/api\/time$/, /^\/api\/auth\//, /^\/api\/display\//];
+const PUBLIC = [/^\/api\/health$/, /^\/api\/time$/, /^\/api\/auth\//, /^\/api\/display\//, /^\/api\/integrations\/teams\/booking$/];
 const RULES = [
   ['GET', /^\/api\/settings$/, null],
   ['PUT', /^\/api\/settings$/, 'settings.manage'],
@@ -121,6 +121,9 @@ const RULES = [
   ['POST', /^\/api\/users$/, 'users.manage'],
   ['PUT', /^\/api\/users\/\d+$/, 'users.manage'],
   ['PATCH', /^\/api\/users\/\d+\/active$/, 'users.manage'],
+  ['GET', /^\/api\/integrations\/teams$/, 'settings.manage'],
+  ['PUT', /^\/api\/integrations\/teams$/, 'settings.manage'],
+  ['POST', /^\/api\/integrations\/teams\/key$/, 'settings.manage'],
   ['GET', /^\/api\/roles$/, null],
   ['POST', /^\/api\/roles$/, 'roles.manage'],
   ['PUT', /^\/api\/roles\/[^/]+$/, 'roles.manage'],

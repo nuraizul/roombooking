@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
+const crypto = require('crypto');
 const db = require('./db');
 const auth = require('./auth');
 
@@ -21,6 +22,12 @@ const auth = require('./auth');
   for (const c of ['map_x', 'map_y', 'map_w', 'map_h']) if (!rc.includes(c)) db.exec(`ALTER TABLE rooms ADD COLUMN ${c} INTEGER`);
   db.exec('CREATE TABLE IF NOT EXISTS floor_levels (name TEXT PRIMARY KEY, sort INTEGER DEFAULT 0)');
 }
+// Integrations (Microsoft Teams). Kept out of /api/settings because they hold secrets.
+db.exec('CREATE TABLE IF NOT EXISTS integrations (key TEXT PRIMARY KEY, value TEXT)');
+const intGet = k => db.prepare('SELECT value FROM integrations WHERE key=?').get(k)?.value ?? null;
+const intSet = (k, v) => db.prepare('INSERT INTO integrations(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, v);
+const teamsOn = () => intGet('teams_enabled') === '1';
+const sha256 = v => crypto.createHash('sha256').update(String(v)).digest('hex');
 // Statuses that do not hold the room
 const FREE_STATUSES = "('Cancelled','Rejected')";
 const displayOptionsInput = b => {
@@ -288,6 +295,7 @@ app.post('/api/bookings', (req, res) => {
     .run(room_id, title, organizer, start_at, end_at, status, req.user.id);
   const booking = getBooking(info.lastInsertRowid);
   broadcastBooking('created', booking);
+  if (booking.status === 'Pending') notifyTeamsApprovers(booking);
   res.status(201).json(booking);
 });
 app.put('/api/bookings/:id', (req, res) => {
@@ -654,6 +662,111 @@ app.delete('/api/floorplan/levels/:name', (req, res) => {
   io.emit('rooms:changed', {});
   res.json({ ok: true });
 });
+
+// ---------- Microsoft Teams integration
+// Admin: read / change the toggle, webhook, and generate the API key (shown once)
+app.get('/api/integrations/teams', (req, res) => res.json({
+  enabled: teamsOn(),
+  webhook_url: intGet('teams_webhook_url') || '',
+  key_set: !!intGet('teams_key_hash'),
+  endpoint: '/api/integrations/teams/booking'
+}));
+app.put('/api/integrations/teams', (req, res) => {
+  const b = req.body || {};
+  if (b.enabled !== undefined) intSet('teams_enabled', b.enabled === true || b.enabled === 'true' ? '1' : '0');
+  if (b.webhook_url !== undefined) {
+    const url = String(b.webhook_url || '').trim();
+    if (url && !/^https:\/\//i.test(url)) return bad(res, 'Webhook address must start with https://');
+    intSet('teams_webhook_url', url);
+  }
+  res.json({ ok: true });
+});
+app.post('/api/integrations/teams/key', (req, res) => {
+  const key = crypto.randomBytes(24).toString('hex');
+  intSet('teams_key_hash', sha256(key));
+  res.status(201).json({ key, note: 'Copy this key now. It will not be shown again.' });
+});
+
+// Teams side: create a booking with only the mandatory details
+// Required: room (room number), title, organizer (name or email), start, end
+app.post('/api/integrations/teams/booking', async (req, res) => {
+  if (!teamsOn()) return bad(res, 'Microsoft Teams integration is turned off in Settings', 403);
+  const key = String(req.headers['x-roomflow-key'] || '');
+  const stored = intGet('teams_key_hash');
+  if (!stored || !key || sha256(key) !== stored) return bad(res, 'Invalid or missing API key', 401);
+
+  const b = req.body || {};
+  const room = String(b.room ?? '').trim();
+  const title = String(b.title ?? '').trim();
+  const organizer = String(b.organizer ?? '').trim();
+  const start = toVenueTime(b.start), end = toVenueTime(b.end);
+  const missing = [!room && 'room', !title && 'title', !organizer && 'organizer', !start && 'start', !end && 'end'].filter(Boolean);
+  if (missing.length) return bad(res, `Missing required field(s): ${missing.join(', ')}`);
+
+  const roomRow = db.prepare('SELECT id FROM rooms WHERE room_no=? AND active=1').get(room);
+  if (!roomRow) return bad(res, `Room "${room}" not found`, 404);
+
+  // Match the organizer to a RoomFlow user (by email, else by name) so their role decides approval
+  const who = db.prepare('SELECT id, name, role FROM users WHERE active=1 AND (email=? OR name=?)')
+    .get(organizer.toLowerCase(), organizer) || null;
+
+  const v = validateBooking({ room_id: roomRow.id, title, organizer, start_at: start, end_at: end });
+  if (v.error) return bad(res, v.error, v.conflict ? 409 : 400);
+  const s = getSettings();
+  const status = bookingStatusFor(who ? who.role : '', s);
+  const info = db.prepare('INSERT INTO bookings(room_id,title,organizer,start_at,end_at,status,created_by) VALUES(?,?,?,?,?,?,?)')
+    .run(v.value.room_id, title, who ? who.name : organizer, v.value.start_at, v.value.end_at, status, who ? who.id : null);
+  const booking = getBooking(info.lastInsertRowid);
+  broadcastBooking('created', booking);
+  if (status === 'Pending') notifyTeamsApprovers(booking);
+  res.status(201).json({
+    id: booking.id, status: booking.status, room: booking.room_no, title: booking.title,
+    start: booking.start_at, end: booking.end_at,
+    message: status === 'Pending' ? 'Booking sent for approval' : 'Booking confirmed'
+  });
+});
+
+// Accept "2026-11-20T10:00", "2026-11-20 10:00" or ISO with an offset (e.g. +08:00 or Z) and convert to venue time
+function toVenueTime(v) {
+  if (typeof v !== 'string') return null;
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(v.trim())) {
+    const d = new Date(v.trim());
+    if (isNaN(d)) return null;
+    return new Intl.DateTimeFormat('sv-SE', { timeZone: APP_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(d).replace('T', ' ');
+  }
+  return normDateTime(v);
+}
+
+// Posts a card to the Teams channel (Power Automate Workflows webhook) so approvers see new requests
+async function notifyTeamsApprovers(booking) {
+  const url = intGet('teams_webhook_url');
+  if (!teamsOn() || !url) return;
+  const card = {
+    type: 'message',
+    attachments: [{
+      contentType: 'application/vnd.microsoft.card.adaptive',
+      content: {
+        type: 'AdaptiveCard', version: '1.4',
+        body: [
+          { type: 'TextBlock', weight: 'Bolder', size: 'Medium', text: 'Room booking waiting for approval' },
+          { type: 'FactSet', facts: [
+            { title: 'Room', value: `${booking.room_no} · ${booking.room_name}` },
+            { title: 'Meeting', value: booking.title },
+            { title: 'Organizer', value: booking.organizer },
+            { title: 'When', value: `${booking.start_at.slice(0, 10)} ${booking.start_at.slice(11, 16)} – ${booking.end_at.slice(11, 16)}` }
+          ] },
+          { type: 'TextBlock', wrap: true, text: 'Approve or reject it in RoomFlow › Bookings.' }
+        ]
+      }
+    }]
+  };
+  try {
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(card), signal: AbortSignal.timeout(8000) });
+  } catch (e) {
+    console.error('Teams notification failed:', e.message);
+  }
+}
 
 // ---------- unknown api + errors
 app.use('/api', (req, res) => bad(res, 'Not found', 404));

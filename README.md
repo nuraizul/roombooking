@@ -101,6 +101,28 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - Rooms that are not placed yet appear under **Not placed yet**. Click **Add here** to put one on the current level.
 - Only roles with **Manage rooms** can edit the plan. Everyone with **View rooms** can see it.
 
+## Microsoft Teams
+Turn on in **Settings → Microsoft Teams**. When it is OFF, the Teams endpoint refuses every request.
+
+**Booking from Teams (Power Automate)**
+1. In Power Automate, create an **Instant cloud flow** with the trigger **Manually trigger a flow**. Add text inputs: `room`, `title`, `organizer`, `start`, `end`.
+2. Add the action **HTTP** with method **POST** and URI `https://<your-server>/api/integrations/teams/booking`.
+3. Headers: `x-roomflow-key: <your key>` and `Content-Type: application/json`.
+4. Body (only these five fields are needed):
+   `{ "room": "@{triggerBody()['text']}", "title": "...", "organizer": "...", "start": "...", "end": "..." }`
+   Use the matching trigger inputs in place of the `...`.
+5. Save, then open the flow from the Power Automate app in Teams so people can run it from Teams.
+
+**Approver notifications (optional)**
+1. In the Teams channel, add the **Workflows** app and choose **Post to a channel when a webhook request is received**.
+2. Copy the URL and paste it into **Teams channel webhook** in Settings.
+
+**Rules**
+- The organizer is matched to a RoomFlow user by email or name. That user's role decides whether the booking waits for approval.
+- Bookings from Teams are approved or rejected on the Bookings page, the same as other bookings.
+- The key is shown once when you generate it. Generating a new one stops the old one from working.
+- Power Automate and Teams menus change over time, so the exact button names may differ.
+
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.
 - **Roles page** (Administrators only): create roles and tick what each role can access. The built-in Administrator role always has everything.
