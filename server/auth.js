@@ -75,22 +75,17 @@ function currentUser(req) {
   if (!row || !row.active || row.expires_at < Date.now()) return null;
   return { id: row.id, name: row.name, email: row.email, role: row.role };
 }
-// Over HTTPS the cookie is SameSite=None; Secure so it works when the app runs inside a Teams tab (iframe).
-// Plain http (local testing) uses SameSite=Lax.
-function cookieSameSite(req) {
-  const https = req.headers['x-forwarded-proto'] === 'https' || req.secure;
-  return https ? 'SameSite=None; Secure' : 'SameSite=Lax';
-}
 function login(req, res, user) {
   const token = crypto.randomBytes(32).toString('hex');
   db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Date.now());
   db.prepare('INSERT INTO sessions(token,user_id,expires_at) VALUES(?,?,?)').run(token, user.id, Date.now() + SESSION_HOURS * 3600 * 1000);
-  res.setHeader('Set-Cookie', `rf_session=${token}; Path=/; HttpOnly; ${cookieSameSite(req)}; Max-Age=${SESSION_HOURS * 3600}`);
+  const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `rf_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_HOURS * 3600}${secure}`);
 }
 function logout(req, res) {
   const t = getToken(req);
   if (t) db.prepare('DELETE FROM sessions WHERE token=?').run(t);
-  res.setHeader('Set-Cookie', `rf_session=; Path=/; HttpOnly; ${cookieSameSite(req)}; Max-Age=0`);
+  res.setHeader('Set-Cookie', 'rf_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
 }
 const publicUser = u => ({ id: u.id, name: u.name, email: u.email, role: u.role });
 const withPerms = u => ({ ...u, permissions: permsFor(u.role) });
@@ -98,7 +93,7 @@ const hasAnyPassword = () => !!db.prepare("SELECT 1 FROM users WHERE password_ha
 const countActiveAdmins = () => db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='Administrator' AND active=1").get().n;
 
 // ---------- route access rules: [method, path regex, permission or null (any logged-in user)]
-const PUBLIC = [/^\/api\/health$/, /^\/api\/time$/, /^\/api\/auth\//, /^\/api\/display\//];
+const PUBLIC = [/^\/api\/health$/, /^\/api\/time$/, /^\/api\/auth\//, /^\/api\/display\//, /^\/api\/integrations\/teams\/booking$/];
 const RULES = [
   ['GET', /^\/api\/settings$/, null],
   ['PUT', /^\/api\/settings$/, 'settings.manage'],
@@ -126,6 +121,7 @@ const RULES = [
   ['POST', /^\/api\/users$/, 'users.manage'],
   ['PUT', /^\/api\/users\/\d+$/, 'users.manage'],
   ['PATCH', /^\/api\/users\/\d+\/active$/, 'users.manage'],
+  ['POST', /^\/api\/integrations\/teams\/token$/, 'settings.manage'],
   ['GET', /^\/api\/roles$/, null],
   ['POST', /^\/api\/roles$/, 'roles.manage'],
   ['PUT', /^\/api\/roles\/[^/]+$/, 'roles.manage'],

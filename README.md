@@ -101,29 +101,10 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - Rooms that are not placed yet appear under **Not placed yet**. Click **Add here** to put one on the current level.
 - Only roles with **Manage rooms** can edit the plan. Everyone with **View rooms** can see it.
 
-## Microsoft Teams (RoomFlow as a Teams app)
-RoomFlow opens inside Teams as a tab. Staff book rooms from Teams, and bookings go through the same approval rules as in the browser.
-
-**Turn on:** Settings → Microsoft Teams → **Allow RoomFlow inside Teams: ON**. Turn it OFF to block Teams completely.
-
-**Build the Teams app package (one time, or after the address changes)**
-1. Make sure RoomFlow is online on Railway (https address).
-2. Open a terminal in the `teams-app` folder and run:
-   ```
-   node build.js https://your-railway-address
-   ```
-3. This creates `teams-app/RoomFlow-Teams.zip`.
-
-**Install in Teams**
-1. In Teams, open **Apps → Manage your apps → Upload an app → Upload a custom app** and choose `RoomFlow-Teams.zip`.
-2. If you do not see this option, a Teams admin must allow custom apps in the Teams admin centre (Teams apps → Setup policies → Upload custom apps: On).
-3. Click **Add** for personal use, or **Add to a team** to put RoomFlow in a team channel.
-4. Open RoomFlow in Teams and sign in with your RoomFlow account.
-
-**Notes**
-- The app address must be the same `https://` address you use in the browser. If you change the Railway address, rebuild the zip and upload it again.
-- Sign-in cookies are set for embedded use over https. If Teams shows a login loop, check that the address is https and that the browser in Teams allows third-party cookies.
-- The privacy and terms pages are at `/privacy.html` and `/terms.html`.
+## Microsoft Teams booking (Power Automate)
+- Turn on **Microsoft Teams booking** in Settings, then create a token and copy the endpoint.
+- Step-by-step setup (one time) and the staff guide are in **POWER-AUTOMATE-SETUP.md**.
+- Bookings from Teams follow the same approval rules. Matching RoomFlow user email gives the booking that person's role.
 
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.

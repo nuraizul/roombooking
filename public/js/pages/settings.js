@@ -59,17 +59,36 @@
             </div>
           </section>
           <section class="panel">
-            <div class="panel-head"><div><h2>Microsoft Teams</h2><p>Open RoomFlow as a tab inside Microsoft Teams</p></div></div>
+            <div class="panel-head"><div><h2>Microsoft Teams booking</h2><p>Staff book rooms from Teams with a Power Automate flow. Set up once, see the guide below.</p></div></div>
             <div class="toggle-row">
-              <div><strong>Allow RoomFlow inside Teams: ${s.teams_enabled ? 'ON' : 'OFF'}</strong>
-                <p>When ON, the Teams app can show RoomFlow. When OFF, RoomFlow cannot be opened inside Teams. It still works in the browser.</p></div>
+              <div><strong>Teams booking: ${s.teams_enabled ? 'ON' : 'OFF'}</strong>
+                <p>When OFF, the Teams endpoint refuses every request. Bookings made from Teams follow the same approval rules as other bookings.</p></div>
               <input type="checkbox" class="switch" name="teams_enabled" ${s.teams_enabled ? 'checked' : ''}>
             </div>
-            <p class="muted" style="font-size:12px;margin-top:8px">Install steps: see the README, section “Microsoft Teams”.</p>
+            <div class="toggle-row" style="display:block">
+              <div><strong>Connection details</strong>
+                <p>Endpoint: <code id="teams-url">${location.origin}/api/integrations/teams/booking</code></p>
+                <p>Token: ${s.teams_token_set ? 'created. Generate a new one only if you need to replace it (the old one stops working).' : 'not created yet.'}</p>
+                <div class="actions" style="justify-content:flex-start;margin-top:8px">
+                  <button type="button" class="btn small" id="teams-token"><i class="fa-solid fa-key"></i> ${s.teams_token_set ? 'Generate new token' : 'Create token'}</button>
+                </div>
+                <div id="teams-token-out" style="margin-top:10px"></div>
+              </div>
+            </div>
           </section>
           <div class="form-error" id="serr"></div>
           <div class="actions" style="margin-top:6px"><button class="btn primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Save settings</button></div>
         </form>`;
+      el.querySelector('#teams-token').onclick = async () => {
+        if (s.teams_token_set && !RF.confirm('Generate a new token? The current token will stop working in Power Automate.')) return;
+        try {
+          const { token } = await A.request('/integrations/teams/token', { method: 'POST' });
+          el.querySelector('#teams-token-out').innerHTML = `
+            <div class="field"><label>Copy this token now. It is shown only once.</label>
+              <input readonly value="${RF.esc(token)}" onclick="this.select()" style="font-family:monospace"></div>`;
+          s.teams_token_set = true;
+        } catch (ex) { RF.toast(ex.message, 'error'); }
+      };
       el.querySelector('#sf').onsubmit = async e => {
         e.preventDefault();
         const f = e.target, v = RF.readForm(f);

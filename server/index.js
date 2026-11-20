@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
+const crypto = require('crypto');
 const db = require('./db');
 const auth = require('./auth');
 
@@ -41,7 +42,6 @@ const ROLES = ['Administrator', 'Staff'];
 const LAYOUTS = ['landscape', 'portrait'];
 const TEMPLATES = ['classic', 'minimal', 'bold'];
 const DEFAULT_SETTINGS = {
-  teams_enabled: false,
   default_layout: 'landscape',
   default_template: 'classic',
   system_name: 'RoomFlow Booking System',
@@ -51,6 +51,7 @@ const DEFAULT_SETTINGS = {
   buffer_minutes: 0,
   allow_same_day: true,
   require_approval: false,
+  teams_enabled: false,
   display_refresh_seconds: 30
 };
 
@@ -58,13 +59,6 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 app.use(express.json({ limit: '100kb' }));
-// Microsoft Teams may embed RoomFlow only when the Teams setting is ON. When OFF, only this site may frame it.
-const TEAMS_ANCESTORS = 'https://teams.microsoft.com https://*.teams.microsoft.com https://*.skype.com https://*.office.com https://*.cloud.microsoft';
-app.use((req, res, next) => {
-  const on = getSettings().teams_enabled === true;
-  res.setHeader('Content-Security-Policy', `frame-ancestors 'self'${on ? ' ' + TEAMS_ANCESTORS : ''}`);
-  next();
-});
 app.use('/api', auth.requireAccess);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -194,7 +188,10 @@ app.get('/api/time', (req, res) => res.json({
   TZ_env: process.env.TZ || null
 }));
 
-app.get('/api/settings', (req, res) => res.json(getSettings()));
+app.get('/api/settings', (req, res) => res.json({
+  ...getSettings(),
+  teams_token_set: !!db.prepare("SELECT 1 FROM settings WHERE key='teams_token_hash'").get()
+}));
 app.put('/api/settings', (req, res) => {
   const body = req.body || {};
   const updates = {};
@@ -661,6 +658,48 @@ app.delete('/api/floorplan/levels/:name', (req, res) => {
   db.prepare('DELETE FROM floor_levels WHERE name=?').run(name);
   io.emit('rooms:changed', {});
   res.json({ ok: true });
+});
+
+// ---------- Microsoft Teams (via Power Automate)
+const sha256 = t => crypto.createHash('sha256').update(String(t)).digest('hex');
+app.post('/api/integrations/teams/token', (req, res) => {
+  const token = crypto.randomBytes(24).toString('base64url');
+  db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run('teams_token_hash', JSON.stringify(sha256(token)));
+  res.json({ token });   // shown once; only a hash is stored
+});
+// Called by Power Automate. Required fields: title, room_no, organizer_email, start_at, end_at.
+app.post('/api/integrations/teams/booking', (req, res) => {
+  const s = getSettings();
+  if (!s.teams_enabled) return bad(res, 'Teams booking is turned off in Settings', 403);
+  const stored = db.prepare("SELECT value FROM settings WHERE key='teams_token_hash'").get();
+  const given = String(req.headers['x-roomflow-token'] || '');
+  if (!stored || !given || JSON.parse(stored.value) !== sha256(given)) return bad(res, 'Invalid token', 401);
+
+  const b = req.body || {};
+  const room_no = String(b.room_no || '').trim();
+  const roomRow = room_no ? db.prepare('SELECT id FROM rooms WHERE room_no=? AND active=1').get(room_no) : null;
+  if (!roomRow) return bad(res, `Room "${room_no}" was not found`, 404);
+  const email = String(b.organizer_email || '').trim().toLowerCase();
+  if (!isEmail(email)) return bad(res, 'organizer_email is required and must be a valid email');
+
+  // If the email belongs to a RoomFlow user, the booking follows that user's role (for approval and editing)
+  const person = db.prepare('SELECT id,name,role,active FROM users WHERE email=?').get(email);
+  const known = person && person.active ? person : null;
+  const organizer = known ? known.name : email;
+  const v = validateBooking({ room_id: roomRow.id, title: b.title, organizer, start_at: b.start_at, end_at: b.end_at });
+  if (v.error) return bad(res, v.error, v.conflict ? 409 : 400);
+
+  const status = bookingStatusFor(known ? known.role : 'Staff', s);
+  const { room_id, title, start_at, end_at } = v.value;
+  const info = db.prepare('INSERT INTO bookings(room_id,title,organizer,start_at,end_at,status,created_by) VALUES(?,?,?,?,?,?,?)')
+    .run(room_id, title, organizer, start_at, end_at, status, known ? known.id : null);
+  const booking = getBooking(info.lastInsertRowid);
+  broadcastBooking('created', booking);
+  res.status(201).json({
+    id: booking.id, status: booking.status, room_no, start_at, end_at,
+    message: status === 'Pending' ? 'Sent for approval' : 'Booked'
+  });
 });
 
 // ---------- unknown api + errors
