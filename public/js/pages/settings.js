@@ -58,6 +58,15 @@
               <p style="margin-top:10px;font-size:12px">Current approvers: <b>${approvers.map(RF.esc).join(', ') || 'none (turn this off, or add the permission to a role)'}</b></p>
             </div>
           </section>
+          <section class="panel">
+            <div class="panel-head"><div><h2>Microsoft Teams</h2><p>Open RoomFlow as a tab inside Microsoft Teams</p></div></div>
+            <div class="toggle-row">
+              <div><strong>Allow RoomFlow inside Teams: ${s.teams_enabled ? 'ON' : 'OFF'}</strong>
+                <p>When ON, the Teams app can show RoomFlow. When OFF, RoomFlow cannot be opened inside Teams. It still works in the browser.</p></div>
+              <input type="checkbox" class="switch" name="teams_enabled" ${s.teams_enabled ? 'checked' : ''}>
+            </div>
+            <p class="muted" style="font-size:12px;margin-top:8px">Install steps: see the README, section “Microsoft Teams”.</p>
+          </section>
           <div class="form-error" id="serr"></div>
           <div class="actions" style="margin-top:6px"><button class="btn primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Save settings</button></div>
         </form>`;
@@ -69,7 +78,7 @@
           default_layout: v.default_layout, default_template: v.default_template,
           display_refresh_seconds: Number(v.display_refresh_seconds), default_duration: Number(v.default_duration),
           buffer_minutes: Number(v.buffer_minutes), allow_same_day: !!v.allow_same_day,
-          require_approval: !!v.require_approval
+          require_approval: !!v.require_approval, teams_enabled: !!v.teams_enabled
         };
         try {
           RF.settings = await A.saveSettings(payload);

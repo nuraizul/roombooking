@@ -41,6 +41,7 @@ const ROLES = ['Administrator', 'Staff'];
 const LAYOUTS = ['landscape', 'portrait'];
 const TEMPLATES = ['classic', 'minimal', 'bold'];
 const DEFAULT_SETTINGS = {
+  teams_enabled: false,
   default_layout: 'landscape',
   default_template: 'classic',
   system_name: 'RoomFlow Booking System',
@@ -57,6 +58,13 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 app.use(express.json({ limit: '100kb' }));
+// Microsoft Teams may embed RoomFlow only when the Teams setting is ON. When OFF, only this site may frame it.
+const TEAMS_ANCESTORS = 'https://teams.microsoft.com https://*.teams.microsoft.com https://*.skype.com https://*.office.com https://*.cloud.microsoft';
+app.use((req, res, next) => {
+  const on = getSettings().teams_enabled === true;
+  res.setHeader('Content-Security-Policy', `frame-ancestors 'self'${on ? ' ' + TEAMS_ANCESTORS : ''}`);
+  next();
+});
 app.use('/api', auth.requireAccess);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 

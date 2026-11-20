@@ -1,0 +1,42 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "155fc58b-5246-4de9-8aed-a99abc8c3484",
+  "packageName": "com.roomflow.booking",
+  "developer": {
+    "name": "Your Organization",
+    "websiteUrl": "https://{{HOST}}",
+    "privacyUrl": "https://{{HOST}}/privacy.html",
+    "termsOfUseUrl": "https://{{HOST}}/terms.html"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "RoomFlow",
+    "full": "RoomFlow Room Booking"
+  },
+  "description": {
+    "short": "Book and manage meeting rooms",
+    "full": "Book meeting rooms, see live room status, and approve bookings from inside Microsoft Teams."
+  },
+  "accentColor": "#536DFE",
+  "staticTabs": [
+    {
+      "entityId": "roomflow-home",
+      "name": "RoomFlow",
+      "contentUrl": "https://{{HOST}}/index.html",
+      "websiteUrl": "https://{{HOST}}",
+      "scopes": [
+        "personal",
+        "team"
+      ]
+    }
+  ],
+  "validDomains": [
+    "{{HOST}}"
+  ],
+  "showLoadingIndicator": true
+}
