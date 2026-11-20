@@ -59,36 +59,48 @@
             </div>
           </section>
           <section class="panel">
-            <div class="panel-head"><div><h2>Microsoft Teams booking</h2><p>Staff book rooms from Teams with a Power Automate flow. Set up once, see the guide below.</p></div></div>
+            <div class="panel-head"><div><h2>Email booking</h2><p>People book a room by emailing or cc'ing the booking mailbox. Bookings arrive as Pending for a Receptionist to approve.</p></div></div>
             <div class="toggle-row">
-              <div><strong>Teams booking: ${s.teams_enabled ? 'ON' : 'OFF'}</strong>
-                <p>When OFF, the Teams endpoint refuses every request. Bookings made from Teams follow the same approval rules as other bookings.</p></div>
-              <input type="checkbox" class="switch" name="teams_enabled" ${s.teams_enabled ? 'checked' : ''}>
+              <div><strong>Accept bookings by email: ${s.inbound_enabled ? 'ON' : 'OFF'}</strong>
+                <p>When OFF, every email is refused. Turn it on only after Power Automate is set up.</p></div>
+              <input type="checkbox" class="switch" name="inbound_enabled" ${s.inbound_enabled ? 'checked' : ''}>
             </div>
-            <div class="toggle-row" style="display:block">
-              <div><strong>Connection details</strong>
-                <p>Endpoint: <code id="teams-url">${location.origin}/api/integrations/teams/booking</code></p>
-                <p>Token: ${s.teams_token_set ? 'created. Generate a new one only if you need to replace it (the old one stops working).' : 'not created yet.'}</p>
-                <div class="actions" style="justify-content:flex-start;margin-top:8px">
-                  <button type="button" class="btn small" id="teams-token"><i class="fa-solid fa-key"></i> ${s.teams_token_set ? 'Generate new token' : 'Create token'}</button>
-                </div>
-                <div id="teams-token-out" style="margin-top:10px"></div>
-              </div>
+            <div class="form-grid" style="margin-top:12px">
+              <div class="field"><label>Working hours from</label><input type="time" name="inbound_open" value="${RF.esc(s.inbound_open)}"></div>
+              <div class="field"><label>Working hours to</label><input type="time" name="inbound_close" value="${RF.esc(s.inbound_close)}"></div>
             </div>
+            <div class="field full" style="margin-top:12px"><label>Endpoint for Power Automate</label>
+              <div class="copy-row"><input id="ib-url" readonly value="${RF.esc(location.origin)}/api/inbound/email"><button type="button" class="btn small" id="ib-copy-url">Copy</button></div></div>
+            <div class="field full" style="margin-top:12px"><label>Secret (sent in header <code>X-Inbound-Secret</code>)</label>
+              <div class="copy-row"><input id="ib-secret" readonly value="${RF.esc(s.inbound_secret || 'Not generated yet. Turn the feature on and save.')}">
+                <button type="button" class="btn small" id="ib-copy-secret">Copy</button>
+                <button type="button" class="btn small danger" id="ib-regen">Regenerate</button></div>
+              <p class="muted" style="font-size:11px;margin-top:6px">Regenerate only if the secret leaks. Every Power Automate flow must then be updated with the new one.</p></div>
+            <p class="muted" style="font-size:12px;margin-top:14px;line-height:1.7">
+              Book: <code>[BOOK] Bilik 101 | 25/11/2026 | 14:00-15:00 | Tajuk mesyuarat</code><br>
+              Cancel: <code>[CANCEL] Bilik 101 | 25/11/2026 | 14:00-15:00</code></p>
+            <h3 style="margin-top:14px;font-size:13px">Recent emails</h3>
+            <div id="ib-log" style="margin-top:6px"></div>
           </section>
           <div class="form-error" id="serr"></div>
           <div class="actions" style="margin-top:6px"><button class="btn primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Save settings</button></div>
         </form>`;
-      el.querySelector('#teams-token').onclick = async () => {
-        if (s.teams_token_set && !RF.confirm('Generate a new token? The current token will stop working in Power Automate.')) return;
-        try {
-          const { token } = await A.request('/integrations/teams/token', { method: 'POST' });
-          el.querySelector('#teams-token-out').innerHTML = `
-            <div class="field"><label>Copy this token now. It is shown only once.</label>
-              <input readonly value="${RF.esc(token)}" onclick="this.select()" style="font-family:monospace"></div>`;
-          s.teams_token_set = true;
-        } catch (ex) { RF.toast(ex.message, 'error'); }
+      const copy = (id) => { navigator.clipboard?.writeText(el.querySelector(id).value).then(() => RF.toast('Copied')).catch(() => RF.toast('Select the text and copy it', 'error')); };
+      el.querySelector('#ib-copy-url').onclick = () => copy('#ib-url');
+      el.querySelector('#ib-copy-secret').onclick = () => copy('#ib-secret');
+      el.querySelector('#ib-regen').onclick = async () => {
+        if (!RF.confirm('Generate a new secret? Power Automate will stop working until you update it.')) return;
+        try { const r = await A.regenerateInboundSecret(); el.querySelector('#ib-secret').value = r.inbound_secret; RF.toast('New secret generated'); }
+        catch (ex) { RF.toast(ex.message, 'error'); }
       };
+      const loadLog = async () => {
+        const rows = await A.getInboundLog();
+        const label = { created: 'Pending approval', cancelled: 'Cancelled', conflict: 'Clash', invalid: 'Invalid', rejected: 'Refused', forbidden: 'Not allowed', not_found: 'Not found', outside_hours: 'Outside hours' };
+        el.querySelector('#ib-log').innerHTML = rows.length
+          ? `<table><thead><tr><th>When</th><th>From</th><th>Result</th><th>Message</th></tr></thead><tbody>${rows.map(r => `<tr><td>${RF.esc(r.received_at.slice(5, 16))}</td><td>${RF.esc(r.sender || '-')}</td><td><span class="table-status ${r.outcome === 'created' || r.outcome === 'cancelled' ? '' : 'inactive'}">${RF.esc(label[r.outcome] || r.outcome)}</span></td><td class="muted">${RF.esc(r.message || '')}</td></tr>`).join('')}</tbody></table>`
+          : '<div class="empty">No emails yet.</div>';
+      };
+      loadLog().catch(() => {});
       el.querySelector('#sf').onsubmit = async e => {
         e.preventDefault();
         const f = e.target, v = RF.readForm(f);
@@ -97,7 +109,8 @@
           default_layout: v.default_layout, default_template: v.default_template,
           display_refresh_seconds: Number(v.display_refresh_seconds), default_duration: Number(v.default_duration),
           buffer_minutes: Number(v.buffer_minutes), allow_same_day: !!v.allow_same_day,
-          require_approval: !!v.require_approval, teams_enabled: !!v.teams_enabled
+          require_approval: !!v.require_approval,
+          inbound_enabled: !!v.inbound_enabled, inbound_open: v.inbound_open, inbound_close: v.inbound_close
         };
         try {
           RF.settings = await A.saveSettings(payload);

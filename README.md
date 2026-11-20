@@ -101,10 +101,12 @@ Realtime (Socket.IO): events `bookings:changed`, `booking:changed`, `rooms:chang
 - Rooms that are not placed yet appear under **Not placed yet**. Click **Add here** to put one on the current level.
 - Only roles with **Manage rooms** can edit the plan. Everyone with **View rooms** can see it.
 
-## Microsoft Teams booking (Power Automate)
-- Turn on **Microsoft Teams booking** in Settings, then create a token and copy the endpoint.
-- Step-by-step setup (one time) and the staff guide are in **POWER-AUTOMATE-SETUP.md**.
-- Bookings from Teams follow the same approval rules. Matching RoomFlow user email gives the booking that person's role.
+## Email booking
+- Settings → **Email booking**: enable toggle, set working hours, and copy the endpoint and secret.
+- Users book by sending or cc'ing the booking mailbox with a subject like `[BOOK] Bilik 101 | 25/11/2026 | 14:00-15:00 | Title`.
+- Bookings arrive as **Pending** and wait for a Receptionist (or any role with approve permission).
+- Set up Power Automate once. See **POWER-AUTOMATE-EMAIL-BOOKING.md**.
+- The Receptionist role is created automatically. It can view and approve bookings.
 
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.
