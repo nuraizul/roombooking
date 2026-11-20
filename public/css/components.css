@@ -321,3 +321,7 @@ html[data-theme="dark"] .fp-canvas{background-color:#131d2f;border-color:#34446a
 html[data-theme="dark"] .fp-card,html[data-theme="dark"] .level-tab{background:var(--surface);color:var(--text)}
 html[data-theme="dark"] .fp-form select,html[data-theme="dark"] .fp-form input{background:var(--surface2);color:var(--text)}
 .code-box{background:#0f1726;color:#e6ecf5;border-radius:10px;padding:12px 14px;font:12px/1.5 Consolas,Menlo,monospace;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:8px 0}
+.cal-event.mine{background:#efe9ff;color:#5b3fc4;border-left:3px solid #7b5ce6}
+.pill.purple{background:#efe9ff;color:#5b3fc4}
+html[data-theme="dark"] .cal-event.mine{background:#2b2350;color:#c9b8ff}
+html[data-theme="dark"] .pill.purple{background:#2b2350;color:#c9b8ff}

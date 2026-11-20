@@ -123,6 +123,14 @@ Turn on in **Settings → Microsoft Teams**. When it is OFF, the Teams endpoint 
 - The key is shown once when you generate it. Generating a new one stops the old one from working.
 - Power Automate and Teams menus change over time, so the exact button names may differ.
 
+## My calendar (read-only link)
+- Each user can paste their own calendar link (ICS) under the calendar icon in the top bar. This needs no Azure or Microsoft admin setup.
+- Outlook (web): Settings → Calendar → Shared calendars → Publish a calendar → copy the ICS link.
+- Google Calendar: Settings → your calendar → Integrate calendar → Secret address in iCal format.
+- In the Calendar page, tick **My calendar** to show your meetings in purple. Only you can see them.
+- The copy refreshes automatically about every 15 minutes, or when you press **Sync now**.
+- Limits: read-only; recurring meetings are read as one entry; all-day events and cancelled meetings are skipped; the link must be public https.
+
 ## Login and roles
 - First visit: if no account exists, the login page asks you to create the first **Administrator**.
 - **Roles page** (Administrators only): create roles and tick what each role can access. The built-in Administrator role always has everything.

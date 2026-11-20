@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
+const { parseIcs } = require('./ics');
 const db = require('./db');
 const auth = require('./auth');
 
@@ -661,6 +662,92 @@ app.delete('/api/floorplan/levels/:name', (req, res) => {
   db.prepare('DELETE FROM floor_levels WHERE name=?').run(name);
   io.emit('rooms:changed', {});
   res.json({ ok: true });
+});
+
+// ---------- personal calendar (read-only link to your Outlook / Google / Apple calendar)
+db.exec(`CREATE TABLE IF NOT EXISTS user_calendars (
+  user_id INTEGER PRIMARY KEY, url TEXT NOT NULL, last_sync INTEGER, last_error TEXT
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS user_calendar_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, uid TEXT, title TEXT,
+  location TEXT, start_at TEXT NOT NULL, end_at TEXT NOT NULL
+);`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_user_cal ON user_calendar_events(user_id, start_at)');
+const CAL_SYNC_MINUTES = 15;
+
+// Only public web addresses. Blocks this server's own network (SSRF).
+function checkCalendarUrl(raw) {
+  let u = String(raw || '').trim();
+  if (/^webcal:\/\//i.test(u)) u = 'https://' + u.slice(9);
+  let parsed;
+  try { parsed = new URL(u); } catch (_) { return { error: 'That is not a valid link' }; }
+  if (parsed.protocol !== 'https:') return { error: 'The link must start with https:// or webcal://' };
+  const h = parsed.hostname.toLowerCase();
+  if (h === 'localhost' || h.endsWith('.local') || /^(127\.|10\.|192\.168\.|169\.254\.|0\.0\.0\.0|::1|172\.(1[6-9]|2\d|3[01])\.)/.test(h))
+    return { error: 'That address is not allowed' };
+  return { value: parsed.toString() };
+}
+function applyCalendarEvents(userId, events) {
+  const now = Date.now(), from = addDays(nowStr().slice(0, 10), -60), to = addDays(nowStr().slice(0, 10), 365);
+  db.transaction(() => {
+    db.prepare('DELETE FROM user_calendar_events WHERE user_id=?').run(userId);
+    const ins = db.prepare('INSERT INTO user_calendar_events(user_id,uid,title,location,start_at,end_at) VALUES(?,?,?,?,?,?)');
+    for (const e of events) if (e.start_at.slice(0, 10) >= from && e.start_at.slice(0, 10) <= to) ins.run(userId, e.uid, e.title, e.location, e.start_at, e.end_at);
+  })();
+  db.prepare('UPDATE user_calendars SET last_sync=?, last_error=NULL WHERE user_id=?').run(now, userId);
+}
+async function syncUserCalendar(userId) {
+  const row = db.prepare('SELECT * FROM user_calendars WHERE user_id=?').get(userId);
+  if (!row) return null;
+  try {
+    const res = await fetch(row.url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RoomFlow' } });
+    if (!res.ok) throw new Error(`The calendar link answered with ${res.status}`);
+    const text = await res.text();
+    if (text.length > 3000000) throw new Error('The calendar file is too large');
+    if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error('This link does not return a calendar (.ics) file');
+    applyCalendarEvents(userId, parseIcs(text, APP_TZ));
+  } catch (e) {
+    db.prepare('UPDATE user_calendars SET last_sync=?, last_error=? WHERE user_id=?').run(Date.now(), String(e.message).slice(0, 200), userId);
+  }
+  return db.prepare('SELECT url, last_sync, last_error FROM user_calendars WHERE user_id=?').get(userId);
+}
+const calStatus = userId => {
+  const row = db.prepare('SELECT url, last_sync, last_error FROM user_calendars WHERE user_id=?').get(userId);
+  return row ? { connected: true, url: row.url, last_sync: row.last_sync, last_error: row.last_error }
+    : { connected: false };
+};
+app.get('/api/me/calendar', (req, res) => res.json(calStatus(req.user.id)));
+app.put('/api/me/calendar', async (req, res) => {
+  const v = checkCalendarUrl(req.body?.url);
+  if (v.error) return bad(res, v.error);
+  db.prepare('INSERT INTO user_calendars(user_id,url,last_sync,last_error) VALUES(?,?,NULL,NULL) ON CONFLICT(user_id) DO UPDATE SET url=excluded.url, last_sync=NULL, last_error=NULL')
+    .run(req.user.id, v.value);
+  await syncUserCalendar(req.user.id);
+  res.json(calStatus(req.user.id));
+});
+app.post('/api/me/calendar/sync', async (req, res) => {
+  if (!db.prepare('SELECT 1 FROM user_calendars WHERE user_id=?').get(req.user.id)) return bad(res, 'Connect a calendar first', 404);
+  await syncUserCalendar(req.user.id);
+  res.json(calStatus(req.user.id));
+});
+app.delete('/api/me/calendar', (req, res) => {
+  db.transaction(() => {
+    db.prepare('DELETE FROM user_calendar_events WHERE user_id=?').run(req.user.id);
+    db.prepare('DELETE FROM user_calendars WHERE user_id=?').run(req.user.id);
+  })();
+  res.json({ ok: true });
+});
+app.get('/api/me/calendar/events', async (req, res) => {
+  const row = db.prepare('SELECT last_sync FROM user_calendars WHERE user_id=?').get(req.user.id);
+  if (!row) return res.json({ connected: false, events: [] });
+  // refresh automatically when the copy is older than 15 minutes
+  if (!row.last_sync || Date.now() - row.last_sync > CAL_SYNC_MINUTES * 60000) await syncUserCalendar(req.user.id);
+  const { from, to } = req.query;
+  const where = ['user_id=?'], args = [req.user.id];
+  if (isDate(from)) { where.push('start_at>=?'); args.push(from + ' 00:00:00'); }
+  if (isDate(to)) { where.push('start_at<?'); args.push(addDays(to, 1) + ' 00:00:00'); }
+  const events = db.prepare(`SELECT id,title,location,start_at,end_at FROM user_calendar_events WHERE ${where.join(' AND ')} ORDER BY start_at LIMIT 2000`).all(...args);
+  res.json({ connected: true, status: calStatus(req.user.id), events });
 });
 
 // ---------- Microsoft Teams integration
