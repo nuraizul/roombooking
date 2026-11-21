@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RoomFlow · Tablet Test</title>
+    <style>
+      *{box-sizing:border-box}
+      body{margin:0;font-family:'DM Sans',Arial,sans-serif;background:#0b1220;color:#e6ecf5;min-height:100vh}
+      header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 18px;background:#162338;border-bottom:1px solid #22324c}
+      header h1{font-size:16px;margin-right:auto}
+      label{font-size:12px;color:#aab8cc;display:flex;gap:6px;align-items:center}
+      input,select,button{font:inherit;font-size:13px;border-radius:7px;border:1px solid #33476a;background:#0f1a2e;color:#fff;padding:7px 10px}
+      button{background:#536dfe;border-color:#536dfe;cursor:pointer}
+      button.ghost{background:transparent}
+      .stage{display:flex;justify-content:center;padding:22px}
+      .frame-wrap{position:relative;background:#000;border-radius:26px;padding:14px;box-shadow:0 20px 50px rgba(0,0,0,.45)}
+      .frame-wrap.landscape{padding:14px 14px}
+      iframe{display:block;border:0;background:#111a2b;border-radius:10px;width:var(--w);height:var(--h);max-width:none}
+      .info{font-size:12px;color:#8fa2c2;padding:0 18px 22px;line-height:1.6}
+      code{background:#22324c;padding:2px 6px;border-radius:5px;color:#fff}
+    </style>
+</head>
+<body>
+<header>
+  <h1>Tablet test · RoomFlow display</h1>
+  <label>Device code <input id="code" value="DISPLAY-101" size="14"></label>
+  <label>Device <select id="size">
+      <option value="1280x800">Android tablet 10" (1280×800)</option>
+      <option value="1024x768">iPad landscape (1024×768)</option>
+      <option value="800x1280" data-portrait="1">Android tablet portrait (800×1280)</option>
+      <option value="1920x1080">Full HD display (1920×1080)</option>
+      <option value="1366x768">Laptop (1366×768)</option>
+  </select></label>
+  <button id="go">Load</button>
+  <button class="ghost" id="fs">Full screen</button>
+</header>
+<div class="stage">
+  <div class="frame-wrap" id="wrap">
+    <iframe id="screen" title="Tablet display"></iframe>
+  </div>
+</div>
+<div class="info">
+  Halaman ni simulasikan tablet/webview. Iframe guna saiz sebenar yang dipilih supaya layout diuji betul.<br>
+  Untuk webview Android sebenar, guna URL terus: <code id="url"></code>
+</div>
+<script>
+  const $ = id => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  function load() {
+    const [w, h] = $('size').value.split('x').map(Number);
+    const code = $('code').value.trim() || 'DISPLAY-101';
+    document.documentElement.style.setProperty('--w', w + 'px');
+    document.documentElement.style.setProperty('--h', h + 'px');
+    const src = `display.html?code=${encodeURIComponent(code)}`;
+    $('screen').src = src;
+    $('url').textContent = new URL(src, location.href).href;
+    const url = new URL(location.href); url.searchParams.set('code', code); url.searchParams.set('size', $('size').value);
+    history.replaceState(null, '', url);
+  }
+  // Scale the frame down to fit the window if the chosen device is bigger than the screen
+  function fit() {
+    const [w, h] = $('size').value.split('x').map(Number);
+    const avail = window.innerWidth - 60, availH = window.innerHeight - 220;
+    const s = Math.min(1, avail / (w + 28), availH / (h + 28));
+    $('wrap').style.transform = `scale(${s})`;
+    $('wrap').style.transformOrigin = 'top center';
+    $('wrap').style.marginBottom = `${-(1 - s) * (h + 28)}px`;
+  }
+  if (params.get('code')) $('code').value = params.get('code');
+  if (params.get('size') && [...$('size').options].some(o => o.value === params.get('size'))) $('size').value = params.get('size');
+  $('go').onclick = () => { load(); fit(); };
+  $('size').onchange = () => { load(); fit(); };
+  $('fs').onclick = () => $('screen').requestFullscreen?.();
+  window.addEventListener('resize', fit);
+  load(); fit();
+</script>
+</body>
+</html>
